@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+AI-service/venv/
+AI-service/.venv/
+AI-service/__pycache__/
+
+# Build outputs
+client/dist/
+client/build/
+server/dist/
+server/build/
+
+# Environment files
+.env
+.env.*
+*.env
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local database files
+*.sqlite
+*.sqlite3
