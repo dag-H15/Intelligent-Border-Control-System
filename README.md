@@ -15,7 +15,7 @@ This project is an intelligent border control system that combines a React front
 
 - Node.js and npm
 - Python 3
-- PostgreSQL (if you plan to use the Prisma database setup)
+- PostgreSQL 
 
 ## Setup
 
