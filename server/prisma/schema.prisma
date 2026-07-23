@@ -1,13 +1,162 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
-  provider = "prisma-client"
+  provider = "prisma-client-js"
   output   = "../generated/prisma"
 }
 
 datasource db {
   provider = "postgresql"
+  
+}
+
+model User {
+  id                 Int               @id @default(autoincrement())
+  name               String
+  email              String            @unique
+  passwordHash       String            @map("password_hash")
+  role               Role
+  createdAt          DateTime          @default(now()) @map("created_at")
+  auditLogs          AuditLog[]
+  capturedBiometrics Biometric[]       @relation("BiometricCapturedBy")
+  overrideRecords    OverrideRecord[]  @relation("SupervisorOverrides")
+  reports            Report[]
+  verificationLogs   VerificationLog[] @relation("OfficerVerifications")
+
+  @@map("users")
+}
+
+model Traveler {
+  id               Int               @id @default(autoincrement())
+  fan              String            @unique @map("fan")
+  fullName         String            @map("full_name")
+  dateOfBirth      DateTime          @map("date_of_birth")
+  gender           Gender
+  nationality      String
+  photo            String?
+  enrollmentStatus EnrollmentStatus  @default(ENROLLED) @map("enrollment_status")
+  enrollmentDate   DateTime          @default(now()) @map("enrollment_date")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+  biometric        Biometric?
+  verificationLogs VerificationLog[]
+
+  @@map("travelers")
+}
+
+model Biometric {
+  id                  Int      @id @default(autoincrement())
+  travelerId          Int      @unique @map("traveler_id")
+  fingerprintTemplate Bytes    @map("fingerprint_template")
+  irisTemplate        Bytes    @map("iris_template")
+  capturedBy          Int      @map("captured_by")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+  capturedByUser      User     @relation("BiometricCapturedBy", fields: [capturedBy], references: [id])
+  traveler            Traveler @relation(fields: [travelerId], references: [id], onDelete: Cascade)
+
+  @@index([capturedBy])
+  @@map("biometrics")
+}
+
+model VerificationLog {
+  id               Int                @id @default(autoincrement())
+  travelerId       Int                @map("traveler_id")
+  officerId        Int                @map("officer_id")
+  fingerprintScore Float              @map("fingerprint_score")
+  irisScore        Float              @map("iris_score")
+  finalScore       Float              @map("final_score")
+  threshold        Float
+  status           VerificationStatus @default(PENDING)
+  systemDecision   Decision?          @map("system_decision")
+  finalDecision    Decision?          @map("final_decision")
+  timestamp        DateTime           @default(now())
+  overrideRecord   OverrideRecord?
+  officer          User               @relation("OfficerVerifications", fields: [officerId], references: [id])
+  traveler         Traveler           @relation(fields: [travelerId], references: [id])
+
+  @@index([travelerId])
+  @@index([officerId])
+  @@index([systemDecision])
+  @@map("verification_logs")
+}
+
+model OverrideRecord {
+  id               Int             @id @default(autoincrement())
+  verificationId   Int             @unique @map("verification_id")
+  supervisorId     Int             @map("supervisor_id")
+  previousDecision Decision        @map("previous_decision")
+  newDecision      Decision        @map("new_decision")
+  reason           String
+  timestamp        DateTime        @default(now())
+  supervisor       User            @relation("SupervisorOverrides", fields: [supervisorId], references: [id])
+  verification     VerificationLog @relation(fields: [verificationId], references: [id])
+
+  @@index([supervisorId])
+  @@map("override_records")
+}
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int?     @map("user_id")
+  action    String
+  level     AuditLevel @default(INFO)
+  ipAddress String   @map("ip_address")
+  timestamp DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([level])
+  @@index([timestamp])
+  @@map("audit_logs")
+}
+
+model Report {
+  id              Int        @id @default(autoincrement())
+  reportType      ReportType @map("report_type")
+  startDate       DateTime   @map("start_date")
+  endDate         DateTime   @map("end_date")
+  generatedBy     Int        @map("generated_by")
+  createdAt       DateTime   @default(now()) @map("created_at")
+  generatedByUser User       @relation(fields: [generatedBy], references: [id])
+
+  @@index([generatedBy])
+  @@map("reports")
+}
+
+enum Role {
+  OFFICER
+  SUPERVISOR
+  ADMIN
+}
+
+enum Gender {
+  MALE
+  FEMALE
+}
+
+enum Decision {
+  VERIFIED
+  PENDING_SUPERVISOR_REVIEW
+  REJECTED
+}
+
+enum ReportType {
+  VERIFICATION_SUMMARY
+  OVERRIDE_SUMMARY
+  OFFICER_ACTIVITY
+}
+
+enum EnrollmentStatus {
+  PENDING
+  ENROLLED
+}
+
+enum VerificationStatus {
+  PENDING
+  COMPLETED
+}
+
+enum AuditLevel {
+  INFO
+  WARNING
+  CRITICAL
 }
