@@ -14,6 +14,8 @@ model User {
   email              String            @unique
   passwordHash       String            @map("password_hash")
   role               Role
+  failedAttempts     Int               @default(0) @map("failed_attempts")
+  lockedUntil        DateTime?         @map("locked_until")
   createdAt          DateTime          @default(now()) @map("created_at")
   auditLogs          AuditLog[]
   capturedBiometrics Biometric[]       @relation("BiometricCapturedBy")
@@ -159,4 +161,12 @@ enum AuditLevel {
   INFO
   WARNING
   CRITICAL
+}
+
+model SystemSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("system_settings")
 }

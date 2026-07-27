@@ -13,8 +13,6 @@ export async function register(req: Request, res: Response, next: NextFunction) 
   try {
     const { name, email, password, role } = req.body;
 
-    // Basic input validation — controller stays thin, but requests must
-    // be well-formed before they ever reach the service/database layer.
     if (!name || !email || !password || !role) {
       return res.status(400).json({
         message: "name, email, password, and role are all required",
@@ -29,7 +27,6 @@ export async function register(req: Request, res: Response, next: NextFunction) 
 
     const user = await registerUser({ name, email, password, role });
 
-    // req.user exists here because the route requires an authenticated ADMIN
     await createAuditLog(
       req.user!.userId,
       `Registered new user (${role}): ${email}`,
@@ -71,10 +68,19 @@ export async function login(req: Request, res: Response, next: NextFunction) {
       token: result.token,
       id: result.user.id,
       name: result.user.name,
+      email: result.user.email,
       role: result.user.role,
     });
   } catch (err) {
-    if ((err as any)?.statusCode === 401) {
+    const statusCode = (err as any)?.statusCode;
+    if (statusCode === 423) {
+      await createAuditLog(
+        (err as any).auditUserId ?? null,
+        `Account temporarily locked due to multiple failed login attempts for ${email}`,
+        getClientIp(req),
+        AuditLevel.CRITICAL
+      );
+    } else if (statusCode === 401) {
       await createAuditLog(
         (err as any).auditUserId ?? null,
         `Failed login attempt for ${email}`,

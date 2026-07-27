@@ -1,11 +1,14 @@
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import authRoutes from "./routes/authRoutes";
-import enrollmentRoutes from "./routes/enrollementRoutes";
+import enrollmentRoutes from "./routes/enrollmentRoutes";
+import travelerRoutes from "./routes/travelerRoutes";
+import userRoutes from "./routes/userRoutes";
 import verificationRoutes from "./routes/verificationRoutes";
 import overrideRoutes from "./routes/overrideRoutes";
 import auditRoutes from "./routes/auditRoutes";
 import reportRoutes from "./routes/reportRoutes";
+import settingsRoutes from "./routes/settingsRoutes";
 
 const app = express();
 
@@ -21,10 +24,13 @@ app.get("/health", (_req: Request, res: Response) => {
 // --- Route mounting ---
 app.use("/api/auth", authRoutes);
 app.use("/api/enrollment", enrollmentRoutes);
+app.use("/api/travelers", travelerRoutes);
+app.use("/api/users", userRoutes);
 app.use("/api/verification", verificationRoutes);
 app.use("/api/override", overrideRoutes);
 app.use("/api/audit-logs", auditRoutes);
 app.use("/api/reports", reportRoutes);
+app.use("/api/settings", settingsRoutes);
 
 // --- 404 handler ---
 app.use((req: Request, res: Response) => {

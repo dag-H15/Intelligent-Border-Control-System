@@ -1,48 +1,37 @@
 import prisma from "../config/prisma";
 import { Decision } from "../../generated/prisma";
-import { DEFAULT_THRESHOLD, REVIEW_MARGIN } from "../config/constants";
+import { DEFAULT_THRESHOLD } from "../config/constants";
+import { decideVerification } from "./decisionEngine";
+import { getBiometricScores, type CaptureMode } from "./aiClient";
 
 interface RunVerificationInput {
-  fan: string;
-  fingerprintScore: number;
-  irisScore: number;
-  threshold?: number;
+  travelerId?: number;
+  fan?: string;
+  captureMode: CaptureMode;
   officerId: number;
+  threshold?: number;
+  fingerprintImage?: Buffer;
+  irisImage?: Buffer;
+  fingerprintData?: string;
+  irisData?: string;
 }
 
-/**
- * Decision engine: given the AI-returned fingerprint/iris scores and a
- * threshold, decides VERIFIED / PENDING_SUPERVISOR_REVIEW / REJECTED.
- *
- *   finalScore >= threshold                          -> VERIFIED
- *   threshold - REVIEW_MARGIN <= finalScore < threshold -> PENDING_SUPERVISOR_REVIEW
- *   finalScore < threshold - REVIEW_MARGIN            -> REJECTED
- */
-function decide(finalScore: number, threshold: number): Decision {
-  if (finalScore >= threshold) return "VERIFIED";
-  if (finalScore >= threshold - REVIEW_MARGIN) return "PENDING_SUPERVISOR_REVIEW";
-  return "REJECTED";
-}
+import { getSystemSettings } from "./settingsService";
 
-/**
- * Runs a verification attempt for an enrolled traveler.
- *
- * NOTE: fingerprintScore/irisScore are expected here as already-computed
- * match scores. Today the officer's client (or a stub) supplies them;
- * once the FastAPI AI service is wired in, this is where its response
- * would be consumed instead.
- */
 export async function runVerification(input: RunVerificationInput) {
-  const { fan, fingerprintScore, irisScore, officerId } = input;
-  const threshold = input.threshold ?? DEFAULT_THRESHOLD;
+  let threshold = input.threshold;
+  if (threshold === undefined) {
+    const settings = await getSystemSettings();
+    threshold = settings.approvalThreshold ?? DEFAULT_THRESHOLD;
+  }
 
-  const traveler = await prisma.traveler.findUnique({
-    where: { fan },
+  const traveler = await prisma.traveler.findFirst({
+    where: input.travelerId ? { id: input.travelerId } : { fan: input.fan },
     include: { biometric: true },
   });
 
   if (!traveler) {
-    const error = new Error("No traveler found for this FAN");
+    const error = new Error("Traveler not found");
     (error as any).statusCode = 404;
     throw error;
   }
@@ -53,24 +42,33 @@ export async function runVerification(input: RunVerificationInput) {
     throw error;
   }
 
-  const finalScore = (fingerprintScore + irisScore) / 2;
-  const systemDecision = decide(finalScore, threshold);
+  const scores = await getBiometricScores({
+    captureMode: input.captureMode,
+    fingerprintBuffer: input.fingerprintImage,
+    irisBuffer: input.irisImage,
+    fingerprintData: input.fingerprintData,
+    irisData: input.irisData,
+    referenceFingerprint: traveler.biometric.fingerprintTemplate,
+    referenceIris: traveler.biometric.irisTemplate,
+  });
+
+  const systemDecision = decideVerification(scores.finalScore, threshold);
 
   const verificationLog = await prisma.verificationLog.create({
     data: {
       travelerId: traveler.id,
-      officerId,
-      fingerprintScore,
-      irisScore,
-      finalScore,
+      officerId: input.officerId,
+      fingerprintScore: scores.fingerprintScore,
+      irisScore: scores.irisScore,
+      finalScore: scores.finalScore,
       threshold,
-      status: "COMPLETED", // AI/decision step finished; a supervisor may still act on the decision
+      status: "COMPLETED",
       systemDecision,
-      finalDecision: systemDecision, // may later be changed via OverrideRecord
+      finalDecision: systemDecision,
     },
   });
 
-  return { verificationLog, traveler };
+  return { verificationLog, traveler, ...scores };
 }
 
 /**

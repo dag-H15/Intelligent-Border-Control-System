@@ -2,6 +2,12 @@ import { Request, Response, NextFunction } from "express";
 import { createTraveler, captureBiometric } from "../services/enrollmentService";
 import { createAuditLog, getClientIp } from "../services/auditService";
 import { AuditLevel, Gender } from "../../generated/prisma";
+import {
+  isValidFingerprintFormat,
+  isValidIrisFormat,
+  isMockOrSeededFingerprint,
+  isMockOrSeededIris
+} from "../utils/fileValidation";
 
 const VALID_GENDERS: Gender[] = ["MALE", "FEMALE"];
 
@@ -77,6 +83,33 @@ export async function captureBiometricHandler(req: Request, res: Response, next:
         message: "fan, fingerprintTemplate, and irisTemplate are required",
       });
     }
+
+    // Validate fingerprint template format
+    if (!isMockOrSeededFingerprint(fingerprintTemplate) && !isValidFingerprintFormat(fingerprintTemplate)) {
+      await createAuditLog(
+        req.user!.userId,
+        `Invalid biometric enrollment request for FAN ${fan}: invalid fingerprint format`,
+        getClientIp(req),
+        AuditLevel.WARNING
+      );
+      return res.status(400).json({
+        message: "Invalid fingerprint image format. Accepted formats: PNG, JPG, JPEG, BMP, TIF, TIFF",
+      });
+    }
+
+    // Validate iris template format
+    if (!isMockOrSeededIris(irisTemplate) && !isValidIrisFormat(irisTemplate)) {
+      await createAuditLog(
+        req.user!.userId,
+        `Invalid biometric enrollment request for FAN ${fan}: invalid iris format`,
+        getClientIp(req),
+        AuditLevel.WARNING
+      );
+      return res.status(400).json({
+        message: "Invalid iris image format. Accepted formats: PNG, JPG, JPEG, BMP",
+      });
+    }
+
 
     const result = await captureBiometric({
       fan,

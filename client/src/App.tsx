@@ -1,122 +1,77 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useState, useEffect } from 'react';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { AppShell, type PageKey } from './components/AppShell';
+import { defaultPageForRole, isPageAllowed } from './components/permissions';
+import { LoginPage } from './pages/LoginPage';
+import { OfficerDashboard } from './pages/OfficerDashboard';
+import { EnrollmentPage } from './pages/EnrollmentPage';
+import { VerifyTravelerPage } from './pages/VerifyTravelerPage';
+import { HistoryPage } from './pages/HistoryPage';
+import { SupervisorDashboard } from './pages/SupervisorDashboard';
+import { PendingReviewPage } from './pages/PendingReviewPage';
+import { ReportsDashboard } from './pages/ReportsDashboard';
+import { AdminDashboard } from './pages/AdminDashboard';
+import { UserManagementPage } from './pages/UserManagementPage';
+import { AuditLogsPage } from './pages/AuditLogsPage';
+import { SystemSettingsPage } from './pages/SystemSettingsPage';
 
-function App() {
-  const [count, setCount] = useState(0)
+function AuthenticatedApp() {
+  const { user, logout } = useAuth();
+  const [page, setPage] = useState<PageKey>(user ? defaultPageForRole(user.role) : 'dashboard');
+
+  // If role changes (e.g. different user logs in), reset to their default page
+  useEffect(() => {
+    if (user) {
+      setPage(defaultPageForRole(user.role));
+    }
+  }, [user]);
+
+  if (!user) return <LoginPage />;
+
+  const role = user.role;
+
+  // Guard: if current page isn't allowed for this role, redirect to default
+  const safePage = isPageAllowed(role, page) ? page : defaultPageForRole(role);
+
+  const handleNavigate = (p: PageKey) => {
+    if (isPageAllowed(role, p)) setPage(p);
+  };
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+    <AppShell
+      role={role}
+      userName={user.name}
+      active={safePage}
+      onNavigate={handleNavigate}
+      onLogout={logout}
+    >
+      {role === 'officer' && safePage === 'dashboard' && <OfficerDashboard onGoVerify={() => setPage('verify')} onGoHistory={() => setPage('history')} />}
+      {role === 'officer' && safePage === 'enrollment' && <EnrollmentPage />}
+      {role === 'officer' && safePage === 'verify' && <VerifyTravelerPage />}
+      {role === 'officer' && safePage === 'history' && <HistoryPage />}
 
-      <div className="ticks"></div>
+      {role === 'supervisor' && safePage === 'supervisor' && <SupervisorDashboard onGoPending={() => setPage('pending')} />}
+      {role === 'supervisor' && safePage === 'pending' && <PendingReviewPage />}
+      {role === 'supervisor' && safePage === 'reports' && <ReportsDashboard />}
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+      {role === 'admin' && safePage === 'admin' && (
+        <AdminDashboard
+          onGoUsers={() => setPage('users')}
+          onGoAudit={() => setPage('audit')}
+          onGoSettings={() => setPage('settings')}
+        />
+      )}
+      {role === 'admin' && safePage === 'users' && <UserManagementPage />}
+      {role === 'admin' && safePage === 'audit' && <AuditLogsPage />}
+      {role === 'admin' && safePage === 'settings' && <SystemSettingsPage />}
+    </AppShell>
+  );
 }
 
-export default App
+export default function App() {
+  return (
+    <AuthProvider>
+      <AuthenticatedApp />
+    </AuthProvider>
+  );
+}
