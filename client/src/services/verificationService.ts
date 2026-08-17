@@ -22,7 +22,7 @@ interface BackendTraveler {
   nationality: string;
   dateOfBirth: string;
   gender: 'MALE' | 'FEMALE';
-  enrollmentStatus: 'PENDING' | 'ENROLLED';
+  enrollmentStatus: 'DRAFT' | 'COMPLETED';
   photo?: string;
 }
 

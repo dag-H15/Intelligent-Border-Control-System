@@ -1,5 +1,6 @@
 import prisma from "../config/prisma";
 import { Gender } from "../../generated/prisma";
+import { extractBiometricTemplate } from "./aiClient";
 
 interface CreateTravelerInput {
   fan: string;
@@ -12,27 +13,30 @@ interface CreateTravelerInput {
 
 interface CaptureBiometricInput {
   fan: string;
-  fingerprintTemplate: string; // base64-encoded template bytes
-  irisTemplate: string; // base64-encoded template bytes
+  fingerprintImage: Buffer | string;
+  irisImage: Buffer | string;
   capturedBy: number; // officer's user id, from req.user
 }
 
 /**
  * Step 1 of enrollment: register the traveler's demographic info.
- * enrollmentStatus starts as PENDING — the traveler is not considered
- * fully enrolled until biometric templates are captured (see below).
+ * enrollmentStatus starts as DRAFT until biometric templates are captured.
  */
 export async function createTraveler(input: CreateTravelerInput) {
   const { fan, fullName, dateOfBirth, gender, nationality, photo } = input;
 
   const existing = await prisma.traveler.findUnique({ where: { fan } });
   if (existing) {
+    if (existing.enrollmentStatus === "DRAFT") {
+      return { traveler: existing, resumedDraft: true };
+    }
+
     const error = new Error("A traveler with this FAN is already registered");
     (error as any).statusCode = 409;
     throw error;
   }
 
-  return prisma.traveler.create({
+  const traveler = await prisma.traveler.create({
     data: {
       fan,
       fullName,
@@ -40,9 +44,11 @@ export async function createTraveler(input: CreateTravelerInput) {
       gender,
       nationality,
       photo,
-      enrollmentStatus: "PENDING",
+      enrollmentStatus: "DRAFT",
     },
   });
+
+  return { traveler, resumedDraft: false };
 }
 
 /**
@@ -54,7 +60,7 @@ export async function createTraveler(input: CreateTravelerInput) {
  * traveler), which is why Biometric has an `updatedAt` column.
  */
 export async function captureBiometric(input: CaptureBiometricInput) {
-  const { fan, fingerprintTemplate, irisTemplate, capturedBy } = input;
+  const { fan, fingerprintImage, irisImage, capturedBy } = input;
 
   const traveler = await prisma.traveler.findUnique({ where: { fan } });
   if (!traveler) {
@@ -63,8 +69,20 @@ export async function captureBiometric(input: CaptureBiometricInput) {
     throw error;
   }
 
-  const fingerprintBuffer = Buffer.from(fingerprintTemplate, "base64");
-  const irisBuffer = Buffer.from(irisTemplate, "base64");
+  const fingerprintPayload = typeof fingerprintImage === "string" ? fingerprintImage : fingerprintImage.toString("base64");
+  const irisPayload = typeof irisImage === "string" ? irisImage : irisImage.toString("base64");
+
+  const fingerprintTemplate = await extractBiometricTemplate({
+    biometricType: "fingerprint",
+    imageData: fingerprintPayload,
+  });
+  const irisTemplate = await extractBiometricTemplate({
+    biometricType: "iris",
+    imageData: irisPayload,
+  });
+
+  const fingerprintBuffer = Buffer.from(fingerprintTemplate.template, "base64");
+  const irisBuffer = Buffer.from(irisTemplate.template, "base64");
 
   // Prevent biometric template reuse across different travelers.
   // We check each template independently so a match on either one blocks
@@ -109,7 +127,7 @@ export async function captureBiometric(input: CaptureBiometricInput) {
   const updatedTraveler = await prisma.traveler.update({
     where: { id: traveler.id },
     data: {
-      enrollmentStatus: "ENROLLED",
+      enrollmentStatus: "COMPLETED",
       enrollmentDate: new Date(),
     },
   });

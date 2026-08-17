@@ -7,12 +7,13 @@ import {
   type VerificationSummaryResponse,
   type OverrideSummaryResponse,
   type OfficerActivitySummaryResponse,
+  type ManualReviewSummaryResponse,
 } from '../services/reportService';
 import { BarChart, AxisLabels, DonutChart, ChartLabels } from '../components/Charts';
 import { FileBarChart, Download, Calendar, Filter, FileText, CheckCircle2, Loader2, AlertCircle } from 'lucide-react';
 
-type ReportType = 'verification' | 'override' | 'officer';
-type GeneratedReport = VerificationSummaryResponse | OverrideSummaryResponse | OfficerActivitySummaryResponse;
+type ReportType = 'verification' | 'override' | 'officer' | 'manual_review';
+type GeneratedReport = VerificationSummaryResponse | OverrideSummaryResponse | OfficerActivitySummaryResponse | ManualReviewSummaryResponse;
 
 export function ReportsDashboard() {
   const { user } = useAuth();
@@ -44,6 +45,7 @@ export function ReportsDashboard() {
     verification: 'Verification Summary',
     override: 'Override Summary',
     officer: 'Officer Activity',
+    manual_review: 'Manual Review Summary',
   };
 
   const dateRangeToParams = (range: '7d' | '30d' | '90d' | 'ytd'): ReportParams => {
@@ -69,8 +71,11 @@ export function ReportsDashboard() {
       } else if (reportType === 'override') {
         const data = await reportService.overrideSummary(params);
         setReportData(data);
-      } else {
+      } else if (reportType === 'officer') {
         const data = await reportService.officerActivity({ ...params, officerId: selectedOfficer });
+        setReportData(data);
+      } else {
+        const data = await reportService.manualReviewSummary(params);
         setReportData(data);
       }
       setGenerated(true);
@@ -114,11 +119,24 @@ export function ReportsDashboard() {
       lines.push(`Total Overrides,${summary.total ?? 0}`);
       lines.push(`Approved to Verified,${summary.approvedToVerified ?? 0}`);
       lines.push(`Approved to Rejected,${summary.approvedToRejected ?? 0}`);
-    } else {
+    } else if (targetType === 'officer') {
       const summary = (targetData as OfficerActivitySummaryResponse).summary || [];
       lines.push('Officer ID,Officer Name,Verifications Count');
       summary.forEach((item) => {
         lines.push(`${item.officerId},"${item.officerName.replace(/"/g, '""')}",${item.verifications}`);
+      });
+    } else {
+      const summary = ((targetData as ManualReviewSummaryResponse).summary || []) as ManualReviewSummaryResponse['summary'];
+      lines.push('Traveler Name,Passport Number,Manual Review Type,Officer,Supervisor,Decision,Submission Date,Review Date');
+      summary.forEach((item) => {
+        lines.push(`"${item.travelerName.replace(/"/g, '""')}",` +
+                   `"${item.passportNo.replace(/"/g, '""')}",` +
+                   `"${item.manualReviewType.replace(/"/g, '""')}",` +
+                   `"${item.officer.replace(/"/g, '""')}",` +
+                   `"${item.supervisor.replace(/"/g, '""')}",` +
+                   `"${item.decision.replace(/"/g, '""')}",` +
+                   `"${new Date(item.submissionDate).toLocaleString()}",` +
+                   `"${new Date(item.reviewDate).toLocaleString()}"`);
       });
     }
 
@@ -137,12 +155,14 @@ export function ReportsDashboard() {
     let rType: ReportType = 'verification';
     if (record.type.toLowerCase().includes('override')) rType = 'override';
     else if (record.type.toLowerCase().includes('officer')) rType = 'officer';
+    else if (record.type.toLowerCase().includes('manual')) rType = 'manual_review';
 
     try {
       let data: GeneratedReport;
       if (rType === 'verification') data = await reportService.verificationSummary(params);
       else if (rType === 'override') data = await reportService.overrideSummary(params);
-      else data = await reportService.officerActivity(params);
+      else if (rType === 'officer') data = await reportService.officerActivity(params);
+      else data = await reportService.manualReviewSummary(params);
 
       handleDownloadCSV(data, rType);
     } catch {
@@ -199,6 +219,7 @@ export function ReportsDashboard() {
               <option value="verification">Verification Summary</option>
               <option value="override">Override Summary</option>
               <option value="officer">Officer Activity</option>
+              <option value="manual_review">Manual Review Summary</option>
             </select>
           </div>
 
@@ -316,6 +337,7 @@ export function ReportsDashboard() {
               <option value="verification">Verification Summary</option>
               <option value="override">Override Summary</option>
               <option value="officer">Officer Activity</option>
+              <option value="manual_review">Manual Review Summary</option>
             </select>
           </div>
         </div>
@@ -413,6 +435,53 @@ function ReportOutput({ reportType, data }: { reportType: ReportType; data: Gene
             <StatPill label="Rejected" value={summary.approvedToRejected ?? 0} />
           </div>
         </div>
+      </div>
+    );
+  }
+
+  if (reportType === 'manual_review') {
+    const summary = data.summary as ManualReviewSummaryResponse['summary'];
+    if (summary.length === 0) return <p className="text-sm text-navy-400">No data for this range.</p>;
+    return (
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-navy-50">
+            <tr>
+              <th className="table-header px-4 py-2 text-left">Traveler</th>
+              <th className="table-header px-4 py-2 text-left">Passport Number</th>
+              <th className="table-header px-4 py-2 text-left">Review Type</th>
+              <th className="table-header px-4 py-2 text-left">Officer</th>
+              <th className="table-header px-4 py-2 text-left">Supervisor</th>
+              <th className="table-header px-4 py-2 text-left">Decision</th>
+              <th className="table-header px-4 py-2 text-left">Submission Date</th>
+              <th className="table-header px-4 py-2 text-left">Review Date</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-navy-100">
+            {summary.map((item, idx) => (
+              <tr key={idx} className="hover:bg-navy-50/60 transition-colors">
+                <td className="px-4 py-2.5 font-medium text-navy-800">{item.travelerName}</td>
+                <td className="px-4 py-2.5 font-mono text-xs text-navy-600">{item.passportNo}</td>
+                <td className="px-4 py-2.5 text-navy-600">{item.manualReviewType.replace(/_/g, ' ')}</td>
+                <td className="px-4 py-2.5 text-navy-600">{item.officer}</td>
+                <td className="px-4 py-2.5 text-navy-600">{item.supervisor}</td>
+                <td className="px-4 py-2.5">
+                  <span className={
+                    item.decision === 'APPROVED' || item.decision === 'APPROVED_OVERRIDE'
+                      ? 'badge-verified'
+                      : item.decision === 'REJECTED'
+                      ? 'badge-rejected'
+                      : 'badge-pending'
+                  }>
+                    {item.decision.replace(/_/g, ' ')}
+                  </span>
+                </td>
+                <td className="px-4 py-2.5 text-navy-600 whitespace-nowrap">{new Date(item.submissionDate).toLocaleDateString()}</td>
+                <td className="px-4 py-2.5 text-navy-600 whitespace-nowrap">{new Date(item.reviewDate).toLocaleDateString()}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     );
   }

@@ -144,7 +144,7 @@ export function EnrollmentPage() {
 
       setEnrollmentSuccess(true);
       setRegisteredTraveler((prev) =>
-        prev ? { ...prev, enrollmentStatus: 'ENROLLED' } : null
+        prev ? { ...prev, enrollmentStatus: 'COMPLETED' } : null
       );
     } catch (err) {
       const msg = getApiErrorMessage(err, 'Biometric enrollment failed.');

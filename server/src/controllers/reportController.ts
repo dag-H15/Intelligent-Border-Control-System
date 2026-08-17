@@ -3,6 +3,7 @@ import {
   generateVerificationSummary,
   generateOverrideSummary,
   generateOfficerActivity,
+  generateManualReviewSummary,
   listReports,
 } from "../services/reportService";
 import { createAuditLog, getClientIp } from "../services/auditService";
@@ -95,6 +96,27 @@ export async function list(req: Request, res: Response, next: NextFunction) {
   try {
     const reports = await listReports();
     return res.status(200).json({ reports });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** POST /api/reports/manual-review-summary */
+export async function manualReviewSummary(req: Request, res: Response, next: NextFunction) {
+  try {
+    const range = await validateDateRange(req, res, "manual review summary report");
+    if (!range) return;
+
+    const result = await generateManualReviewSummary({ ...range, generatedBy: req.user!.userId });
+
+    await createAuditLog(
+      req.user!.userId,
+      "Generated manual review summary report",
+      getClientIp(req),
+      AuditLevel.INFO
+    );
+
+    return res.status(201).json(result);
   } catch (err) {
     next(err);
   }

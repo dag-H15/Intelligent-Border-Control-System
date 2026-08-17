@@ -37,8 +37,55 @@ export interface Traveler {
   dateOfBirth: string;
   gender: 'MALE' | 'FEMALE';
   nationality: string;
-  enrollmentStatus: 'PENDING' | 'ENROLLED';
+  enrollmentStatus: 'DRAFT' | 'COMPLETED';
   photo: string | null;
+}
+
+export type ManualReviewReason = 'FINGERPRINT_INJURY' | 'IRIS_INJURY' | 'BIOMETRIC_UNAVAILABLE';
+export type ManualReviewDecision = 'APPROVED_OVERRIDE' | 'REJECTED' | 'REQUEST_RE_ENROLLMENT';
+export type ManualReviewStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'RE_ENROLLMENT_REQUESTED';
+
+export interface ManualReviewAttachment {
+  originalName: string;
+  mimeType: string;
+  size: number;
+  data: string;
+}
+
+export interface ManualReviewRecord {
+  id: number;
+  travelerId: number;
+  officerId: number;
+  verificationId?: number | null;
+  reason: ManualReviewReason;
+  officerNotes: string;
+  attachments: ManualReviewAttachment[];
+  decision?: ManualReviewDecision | null;
+  status: ManualReviewStatus;
+  supervisorId?: number | null;
+  supervisorNotes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  traveler?: {
+    fan: string;
+    fullName: string;
+    enrollmentStatus: 'DRAFT' | 'COMPLETED';
+  };
+  officer?: {
+    id: number;
+    name: string;
+  };
+  supervisor?: {
+    id: number;
+    name: string;
+  };
+  verification?: {
+    id: number;
+    fingerprintScore: number;
+    irisScore: number;
+    finalScore: number;
+    finalDecision: string;
+  };
 }
 
 export interface VerificationRecord {

@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { overrideService, type PendingCase } from '../services/overrideService';
-import { verificationService } from '../services/verificationService';
 import { StatusBadge } from '../components/StatusBadge';
 import { ClipboardCheck, Gavel, FileBarChart, XCircle, ArrowUpRight, Loader2, AlertCircle } from 'lucide-react';
 
@@ -10,23 +9,29 @@ interface Props {
 
 export function SupervisorDashboard({ onGoPending }: Props) {
   const [pendingCases, setPendingCases] = useState<PendingCase[]>([]);
-  const [rejectedCount, setRejectedCount] = useState(0);
+  const [overrideActivity, setOverrideActivity] = useState<{ timestamp: string; newDecision: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
     Promise.all([
       overrideService.getPending().catch(() => []),
-      verificationService.getMyActivity().catch(() => []),
+      overrideService.getMyActivity().catch(() => []),
     ]).then(([pending, activity]) => {
       setPendingCases(pending);
-      setRejectedCount((activity as { result: string }[]).filter((r) => r.result === 'rejected').length);
+      setOverrideActivity((activity as { timestamp: string; newDecision: string }[]).filter((record) => new Date(record.timestamp) >= startOfToday));
       setLoading(false);
     }).catch(() => {
       setError('Failed to load dashboard data.');
       setLoading(false);
     });
   }, []);
+
+  const manualReviewsToday = overrideActivity.length;
+  const approvedToday = overrideActivity.filter((record) => record.newDecision === 'VERIFIED').length;
+  const rejectedToday = overrideActivity.filter((record) => record.newDecision === 'REJECTED').length;
 
   return (
     <div className="space-y-6">
@@ -42,10 +47,10 @@ export function SupervisorDashboard({ onGoPending }: Props) {
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <SupCard label="Pending Cases" value={pendingCases.length} icon={ClipboardCheck} tone="amber" />
-        <SupCard label="Overrides Today" value={7} icon={Gavel} tone="navy" />
-        <SupCard label="Reports Generated" value={48} icon={FileBarChart} tone="green" />
-        <SupCard label="Rejected Cases" value={rejectedCount} icon={XCircle} tone="red" />
+        <SupCard label="Pending Reviews" value={pendingCases.length} icon={ClipboardCheck} tone="amber" />
+        <SupCard label="Manual Reviews Today" value={manualReviewsToday} icon={Gavel} tone="navy" />
+        <SupCard label="Approved Today" value={approvedToday} icon={FileBarChart} tone="green" />
+        <SupCard label="Rejected Today" value={rejectedToday} icon={XCircle} tone="red" />
       </div>
 
       {/* Pending queue */}

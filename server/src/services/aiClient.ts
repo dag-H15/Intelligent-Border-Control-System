@@ -1,6 +1,103 @@
 export type CaptureMode = "SIMULATION" | "SCANNER";
+export type BiometricType = "fingerprint" | "iris";
 
-export interface AiScoreInput {
+export interface AiTemplateExtractionInput {
+  biometricType: BiometricType;
+  imageBuffer?: Buffer;
+  imageData?: string;
+}
+
+export interface AiTemplateComparisonInput {
+  biometricType: BiometricType;
+  imageBuffer?: Buffer;
+  imageData?: string;
+  storedTemplate: Buffer | Uint8Array | string;
+  threshold?: number;
+}
+
+function bytesToBase64(bytes?: Buffer | Uint8Array | null): string {
+  if (!bytes) return "";
+  return Buffer.isBuffer(bytes) ? bytes.toString("base64") : Buffer.from(bytes).toString("base64");
+}
+
+function normalizeBase64Data(input?: string): string {
+  if (!input) return "";
+  return input.includes(",") ? input.split(",")[1] : input;
+}
+
+function resolveAiBaseUrl(): string {
+  const configured = process.env.AI_SERVICE_BASE_URL || process.env.AI_SERVICE_URL || "http://localhost:5001";
+  return configured.replace(/\/(verify|enroll)\/?$/i, "");
+}
+
+function buildAiUrl(pathname: string): string {
+  const baseUrl = resolveAiBaseUrl();
+  return new URL(pathname, baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`).toString();
+}
+
+function toImagePayload(buffer?: Buffer, data?: string): string {
+  if (buffer) {
+    return buffer.toString("base64");
+  }
+
+  return normalizeBase64Data(data ?? "");
+}
+
+export async function extractBiometricTemplate(input: AiTemplateExtractionInput): Promise<{
+  template: string;
+  biometricType: BiometricType;
+}> {
+  const response = await fetch(buildAiUrl("enroll"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      biometricType: input.biometricType,
+      image: toImagePayload(input.imageBuffer, input.imageData),
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`AI Service returned error HTTP ${response.status}: ${errorText}`);
+  }
+
+  const result = (await response.json()) as { template: string; biometricType?: BiometricType };
+  return {
+    template: String(result.template ?? ""),
+    biometricType: (result.biometricType ?? input.biometricType) as BiometricType,
+  };
+}
+
+export async function compareBiometricTemplate(input: AiTemplateComparisonInput): Promise<{
+  score: number;
+  match: boolean;
+  biometricType: BiometricType;
+}> {
+  const response = await fetch(buildAiUrl("verify"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      biometricType: input.biometricType,
+      image: toImagePayload(input.imageBuffer, input.imageData),
+      storedTemplate: bytesToBase64(input.storedTemplate),
+      threshold: input.threshold ?? 85,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`AI Service returned error HTTP ${response.status}: ${errorText}`);
+  }
+
+  const result = (await response.json()) as { score: number; match: boolean; biometricType?: BiometricType };
+  return {
+    score: Number(result.score),
+    match: Boolean(result.match),
+    biometricType: (result.biometricType ?? input.biometricType) as BiometricType,
+  };
+}
+
+export async function getBiometricScores(input: {
   captureMode: CaptureMode;
   fingerprintBuffer?: Buffer;
   irisBuffer?: Buffer;
@@ -8,65 +105,39 @@ export interface AiScoreInput {
   irisData?: string;
   referenceFingerprint?: Buffer | Uint8Array | null;
   referenceIris?: Buffer | Uint8Array | null;
-}
-
-const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:5001/verify";
-
-function bytesToBase64(bytes?: Buffer | Uint8Array | null): string {
-  if (!bytes) return "";
-  return Buffer.isBuffer(bytes) ? bytes.toString("base64") : Buffer.from(bytes).toString("base64");
-}
-
-export async function getBiometricScores(input: AiScoreInput): Promise<{
+}): Promise<{
   fingerprintScore: number;
   irisScore: number;
   finalScore: number;
   decision?: string;
 }> {
-  const fpSource = input.fingerprintBuffer
-    ? input.fingerprintBuffer.toString("base64")
-    : input.fingerprintData ?? "";
-
-  const irisSource = input.irisBuffer
-    ? input.irisBuffer.toString("base64")
-    : input.irisData ?? "";
-
-  const refFp = bytesToBase64(input.referenceFingerprint);
-  const refIris = bytesToBase64(input.referenceIris);
-
-  try {
-    const response = await fetch(AI_SERVICE_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        captureMode: input.captureMode,
-        fingerprint: fpSource,
-        iris: irisSource,
-        referenceFingerprint: refFp,
-        referenceIris: refIris,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`AI Service returned error HTTP ${response.status}: ${errorText}`);
-    }
-
-    const result = (await response.json()) as {
-      fingerprintScore: number;
-      irisScore: number;
-      finalScore: number;
-      decision?: string;
-    };
-
+  if (!input.referenceFingerprint || !input.referenceIris) {
     return {
-      fingerprintScore: Number(result.fingerprintScore),
-      irisScore: Number(result.irisScore),
-      finalScore: Number(result.finalScore),
-      decision: result.decision,
+      fingerprintScore: 0,
+      irisScore: 0,
+      finalScore: 0,
     };
-  } catch (err: any) {
-    console.error("AI Service Request Failed:", err?.message || err);
-    throw new Error(`Biometric matching failed: Could not communicate with Python AI Service at ${AI_SERVICE_URL}`);
   }
+
+  const fingerprintResult = await compareBiometricTemplate({
+    biometricType: "fingerprint",
+    imageBuffer: input.fingerprintBuffer,
+    imageData: input.fingerprintData,
+    storedTemplate: input.referenceFingerprint,
+    threshold: 85,
+  });
+
+  const irisResult = await compareBiometricTemplate({
+    biometricType: "iris",
+    imageBuffer: input.irisBuffer,
+    imageData: input.irisData,
+    storedTemplate: input.referenceIris,
+    threshold: 85,
+  });
+
+  return {
+    fingerprintScore: fingerprintResult.score,
+    irisScore: irisResult.score,
+    finalScore: Math.round(((fingerprintResult.score + irisResult.score) / 2) * 100) / 100,
+  };
 }

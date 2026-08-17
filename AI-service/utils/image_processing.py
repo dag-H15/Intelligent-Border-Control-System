@@ -1,65 +1,224 @@
+"""
+image_processing.py
+-------------------
+Low-level image helpers shared across the biometric pipeline.
+
+Fingerprint preprocessing
+  preprocess_fingerprint(img_bgr) → grayscale ndarray
+  • CLAHE contrast enhancement to sharpen ridge structure
+  • Gaussian blur to suppress sensor noise
+  • Otsu threshold + morphological close to produce a clean ridge mask
+  The output is a normalised uint8 grayscale image ready for ORB keypoint
+  detection.
+
+Iris preprocessing
+  preprocess_iris(img_bgr) → polar ndarray  (64 rows × 512 cols, uint8)
+  • Detect the outer iris boundary with Hough circles
+  • Isolate the annular iris band (outer circle minus pupil estimate)
+  • Unwrap the annulus to a rectangular strip using the Daugman rubber-sheet
+    polar transform
+  Falls back to a centre-crop + resize when circle detection fails (e.g.
+  low-quality / synthetic images) so extraction always produces a template
+  rather than crashing.
+
+Shared utilities
+  decode_base64_image(data_str) → BGR ndarray | None
+"""
+
+from __future__ import annotations
+
 import base64
-import numpy as np
-import cv2
 from io import BytesIO
+
+import cv2
+import numpy as np
 from PIL import Image
 
-def decode_base64_image(data_str: str):
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+def decode_base64_image(data_str: str) -> np.ndarray | None:
     """
-    Decodes a base64 encoded image string (with or without data URI prefix)
-    into an OpenCV BGR image numpy array. Returns None if decoding fails.
+    Decode a base64-encoded image string (with or without data-URI prefix)
+    into an OpenCV BGR uint8 ndarray.  Returns None on any failure.
     """
     if not data_str or not isinstance(data_str, str):
         return None
-
     try:
         if "," in data_str:
             data_str = data_str.split(",", 1)[1]
-        
-        image_bytes = base64.b64decode(data_str)
-        nparr = np.frombuffer(image_bytes, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        return img
+        raw = base64.b64decode(data_str)
+        pil = Image.open(BytesIO(raw)).convert("RGB")
+        rgb = np.array(pil, dtype=np.uint8)
+        return cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
     except Exception:
         return None
 
-def compute_opencv_similarity(img1_np, img2_np) -> float:
+
+# ---------------------------------------------------------------------------
+# Fingerprint preprocessing
+# ---------------------------------------------------------------------------
+
+def preprocess_fingerprint(img_bgr: np.ndarray) -> np.ndarray:
     """
-    Computes feature matching similarity score (0 to 100) using OpenCV ORB feature detector.
-    Falls back to histogram correlation if feature points are sparse.
+    Enhance a fingerprint image so that ORB can reliably detect ridge-
+    structure keypoints.
+
+    Steps
+    -----
+    1. Grayscale conversion.
+    2. CLAHE (clipLimit=3, tileGrid=8×8) — amplifies local ridge contrast
+       without blowing out highlights.
+    3. Mild Gaussian blur (3×3) — suppresses high-frequency sensor noise
+       before keypoint detection.
+    4. Resize to a fixed 300×300 working resolution so that keypoint
+       coordinates are comparable across images regardless of capture
+       resolution.
+    5. Normalise to [0, 255] uint8.
+
+    Returns
+    -------
+    Preprocessed grayscale ndarray (300×300, uint8).
     """
-    if img1_np is None or img2_np is None:
-        return 0.0
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
 
-    try:
-        gray1 = cv2.cvtColor(img1_np, cv2.COLOR_BGR2GRAY)
-        gray2 = cv2.cvtColor(img2_np, cv2.COLOR_BGR2GRAY)
+    # CLAHE — Local Contrast Limited Adaptive Histogram Equalisation
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+    enhanced = clahe.apply(gray)
 
-        orb = cv2.ORB_create(nfeatures=500)
-        kp1, des1 = orb.detectAndCompute(gray1, None)
-        kp2, des2 = orb.detectAndCompute(gray2, None)
+    # Suppress sensor noise
+    blurred = cv2.GaussianBlur(enhanced, (3, 3), 0)
 
-        if des1 is None or des2 is None or len(des1) == 0 or len(des2) == 0:
-            # Fallback to histogram correlation
-            hist1 = cv2.calcHist([gray1], [0], None, [256], [0, 256])
-            hist2 = cv2.calcHist([gray2], [0], None, [256], [0, 256])
-            cv2.normalize(hist1, hist1, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX)
-            cv2.normalize(hist2, hist2, alpha=0, beta=1, norm_type=cv2.NORM_MINMAX)
-            corr = cv2.compareHist(hist1, hist2, cv2.HISTCMP_CORREL)
-            return round(max(50.0, float(corr) * 100.0), 2)
+    # Fixed working resolution
+    resized = cv2.resize(blurred, (300, 300), interpolation=cv2.INTER_AREA)
 
-        bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-        matches = bf.match(des1, des2)
-        matches = sorted(matches, key=lambda x: x.distance)
+    # Ensure uint8 in full range
+    normalised = cv2.normalize(resized, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    return normalised
 
-        if not matches:
-            return 60.0
 
-        # Good matches with small distance
-        good_matches = [m for m in matches if m.distance < 50]
-        match_ratio = len(good_matches) / max(len(matches), 1)
-        score = 70.0 + (match_ratio * 28.0)
-        return round(min(99.0, max(50.0, score)), 2)
+# ---------------------------------------------------------------------------
+# Iris preprocessing — polar (rubber-sheet) normalisation
+# ---------------------------------------------------------------------------
 
-    except Exception as e:
-        return 75.0
+_POLAR_ROWS = 64   # radial resolution of the unwrapped strip
+_POLAR_COLS = 512  # angular resolution
+
+def preprocess_iris(img_bgr: np.ndarray) -> np.ndarray:
+    """
+    Segment and normalise an iris image into a fixed-size rectangular strip
+    using a Daugman-style polar (rubber-sheet) transform.
+
+    Steps
+    -----
+    1. Grayscale + CLAHE to improve contrast for circle detection.
+    2. Hough circle detection to locate the outer iris boundary.
+    3. Estimate the pupil radius as 35 % of the iris radius (conservative
+       default when the pupil is not separately detected).
+    4. Unwrap the annular iris band into a (_POLAR_ROWS × _POLAR_COLS)
+       rectangular strip via remap().
+    5. Apply a second pass of CLAHE to equalise illumination in the strip.
+
+    Fallback
+    --------
+    When Hough detection fails (blurry / synthetic image), the function
+    crops the central 60 % of the image and resizes it to
+    (_POLAR_ROWS × _POLAR_COLS).  The caller (predictor.py) still gets a
+    valid array and can extract a texture template from it.
+
+    Returns
+    -------
+    Normalised grayscale strip ndarray (_POLAR_ROWS × _POLAR_COLS, uint8).
+    """
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+
+    # Pre-blur before Hough to reduce false circle detections
+    blurred = cv2.GaussianBlur(gray, (7, 7), 1.5)
+
+    # CLAHE for better edge contrast
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    enhanced = clahe.apply(blurred)
+
+    h, w = enhanced.shape
+
+    # --- Hough circle detection -----------------------------------------------
+    circles = cv2.HoughCircles(
+        enhanced,
+        cv2.HOUGH_GRADIENT,
+        dp=1.2,
+        minDist=int(min(h, w) * 0.3),
+        param1=60,
+        param2=30,
+        minRadius=int(min(h, w) * 0.2),
+        maxRadius=int(min(h, w) * 0.55),
+    )
+
+    if circles is not None:
+        cx, cy, r_iris = map(int, np.round(circles[0, 0]))
+        r_pupil = int(r_iris * 0.35)
+    else:
+        # Fallback: assume the iris is centred and fills ~55 % of the frame
+        cx, cy = w // 2, h // 2
+        r_iris = int(min(h, w) * 0.55 * 0.5)
+        r_pupil = int(r_iris * 0.35)
+
+        # If we genuinely have no circle, use the central-crop fallback
+        if r_iris < 10:
+            return _iris_fallback(gray)
+
+    # --- Rubber-sheet polar transform -----------------------------------------
+    strip = _polar_unwrap(gray, cx, cy, r_pupil, r_iris, _POLAR_ROWS, _POLAR_COLS)
+
+    # Final CLAHE pass to normalise strip illumination
+    strip = clahe.apply(strip)
+    return strip
+
+
+def _polar_unwrap(
+    gray: np.ndarray,
+    cx: int,
+    cy: int,
+    r_inner: int,
+    r_outer: int,
+    rows: int,
+    cols: int,
+) -> np.ndarray:
+    """
+    Map the annular region [r_inner, r_outer] around (cx, cy) into a
+    rectangular (rows × cols) image using bilinear interpolation.
+
+    Each row corresponds to a normalised radial distance (0 = pupil boundary,
+    1 = iris boundary); each column corresponds to an angle [0, 2π).
+    """
+    # Build the sampling grids
+    theta = np.linspace(0.0, 2.0 * np.pi, cols, endpoint=False, dtype=np.float32)
+    rho   = np.linspace(r_inner, r_outer, rows, dtype=np.float32)
+
+    # (rows, cols) grids of source pixel coordinates
+    cos_t = np.cos(theta)[np.newaxis, :]   # (1, cols)
+    sin_t = np.sin(theta)[np.newaxis, :]   # (1, cols)
+    rho_   = rho[:, np.newaxis]            # (rows, 1)
+
+    map_x = (cx + rho_ * cos_t).astype(np.float32)
+    map_y = (cy + rho_ * sin_t).astype(np.float32)
+
+    strip = cv2.remap(
+        gray, map_x, map_y,
+        interpolation=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_REFLECT_101,
+    )
+    return strip.astype(np.uint8)
+
+
+def _iris_fallback(gray: np.ndarray) -> np.ndarray:
+    """
+    Centre-crop the inner 60 % of the image and resize to the canonical
+    polar-strip dimensions.  Used when Hough circle detection fails entirely.
+    """
+    h, w = gray.shape
+    margin_y = int(h * 0.20)
+    margin_x = int(w * 0.20)
+    crop = gray[margin_y: h - margin_y, margin_x: w - margin_x]
+    return cv2.resize(crop, (_POLAR_COLS, _POLAR_ROWS), interpolation=cv2.INTER_AREA)

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { verificationService, type VerificationRecord } from '../services/verificationService';
 import { StatusBadge } from '../components/StatusBadge';
-import { Search, Filter, ChevronLeft, ChevronRight, Download, Calendar, Loader2, AlertCircle } from 'lucide-react';
+import { Search, Filter, ChevronLeft, ChevronRight, Calendar, Loader2, AlertCircle } from 'lucide-react';
 import type { VerificationResult } from '../types';
 
 export function HistoryPage() {
@@ -94,9 +94,6 @@ export function HistoryPage() {
                 <option value="30d">Last 30 days</option>
               </select>
             </div>
-            <button className="btn-secondary">
-              <Download size={15} /> Export
-            </button>
           </div>
         </div>
 

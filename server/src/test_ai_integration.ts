@@ -1,50 +1,37 @@
-import { getBiometricScores } from "./services/aiClient";
+import { compareBiometricTemplate, extractBiometricTemplate } from "./services/aiClient";
 import { decideVerification } from "./services/decisionEngine";
 
 async function runTest() {
   console.log("=== Testing Node -> Python AI Service REST Integration ===");
 
+  const sampleImage =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
   try {
-    // Test 1: Simulation Mode (Image Buffers)
-    console.log("\n--- Test 1: Simulation Mode (Image Upload) ---");
-    const simResult = await getBiometricScores({
-      captureMode: "SIMULATION",
-      fingerprintBuffer: Buffer.from("mock_captured_fingerprint_image_data"),
-      irisBuffer: Buffer.from("mock_captured_iris_image_data"),
-      referenceFingerprint: Buffer.from("mock_reference_fingerprint_template"),
-      referenceIris: Buffer.from("mock_reference_iris_template"),
+    console.log("\n--- Test 1: Template extraction ---");
+    const extracted = await extractBiometricTemplate({
+      biometricType: "fingerprint",
+      imageData: sampleImage,
     });
 
-    console.log("AI Service Response (Simulation):", simResult);
-    if (
-      typeof simResult.fingerprintScore === "number" &&
-      typeof simResult.irisScore === "number" &&
-      typeof simResult.finalScore === "number"
-    ) {
-      console.log("✔ Simulation Mode AI response contract valid!");
-    } else {
-      throw new Error("Invalid response format for Simulation Mode");
+    if (!extracted.template) {
+      throw new Error("Template extraction returned an empty payload");
     }
-
-    // Test 2: Scanner Mode (Hardware Tokens)
-    console.log("\n--- Test 2: Scanner Mode (Device Tokens) ---");
-    const scanResult = await getBiometricScores({
-      captureMode: "SCANNER",
-      fingerprintData: "scanner-fingerprint-994812",
-      irisData: "scanner-iris-994812",
-      referenceFingerprint: Buffer.from("fingerprint-template-FAN-100001"),
-      referenceIris: Buffer.from("iris-template-FAN-100001"),
+    console.log("AI Service response (template extraction):", {
+      biometricType: extracted.biometricType,
+      templateLength: extracted.template.length,
     });
 
-    console.log("AI Service Response (Scanner):", scanResult);
-    if (
-      typeof scanResult.fingerprintScore === "number" &&
-      typeof scanResult.irisScore === "number" &&
-      typeof scanResult.finalScore === "number"
-    ) {
-      console.log("✔ Scanner Mode AI response contract valid!");
-    } else {
-      throw new Error("Invalid response format for Scanner Mode");
+    console.log("\n--- Test 2: Template comparison ---");
+    const compareResult = await compareBiometricTemplate({
+      biometricType: "fingerprint",
+      imageData: sampleImage,
+      storedTemplate: Buffer.from(extracted.template, "base64"),
+    });
+
+    console.log("AI Service response (comparison):", compareResult);
+    if (typeof compareResult.score !== "number" || typeof compareResult.match !== "boolean") {
+      throw new Error("Invalid response format for template comparison");
     }
 
     // Test 3: Decision Engine Verification

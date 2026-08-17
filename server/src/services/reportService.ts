@@ -110,3 +110,44 @@ export async function listReports() {
     include: { generatedByUser: { select: { name: true, role: true } } },
   });
 }
+
+export async function generateManualReviewSummary({ startDate, endDate, generatedBy }: DateRange) {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+
+  const requests = await prisma.manualReviewRequest.findMany({
+    where: {
+      status: { in: ["APPROVED", "REJECTED", "RE_ENROLLMENT_REQUESTED"] },
+      updatedAt: { gte: start, lte: end },
+    },
+    include: {
+      traveler: { select: { fullName: true, fan: true } },
+      officer: { select: { name: true } },
+      supervisor: { select: { name: true } },
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+
+  const summary = requests.map((r) => ({
+    id: r.id,
+    travelerName: r.traveler.fullName,
+    passportNo: r.traveler.fan,
+    manualReviewType: r.reason,
+    officer: r.officer.name,
+    supervisor: r.supervisor?.name ?? "System",
+    decision: r.status,
+    submissionDate: r.createdAt.toISOString(),
+    reviewDate: r.updatedAt.toISOString(),
+  }));
+
+  const report = await prisma.report.create({
+    data: {
+      reportType: "MANUAL_REVIEW_SUMMARY",
+      startDate: start,
+      endDate: end,
+      generatedBy,
+    },
+  });
+
+  return { report, summary };
+}

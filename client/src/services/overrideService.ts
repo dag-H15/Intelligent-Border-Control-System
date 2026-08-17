@@ -3,6 +3,21 @@ import type { PendingCase } from '../types';
 
 export type { PendingCase } from '../types';
 
+interface BackendOverrideRecord {
+  id: number;
+  supervisorId: number;
+  previousDecision: string;
+  newDecision: string;
+  reason: string;
+  timestamp: string;
+  verification?: {
+    traveler?: {
+      fan: string;
+      fullName: string;
+    };
+  };
+}
+
 interface BackendPendingVerification {
   id: number;
   traveler?: {
@@ -48,6 +63,11 @@ export const overrideService = {
   getPending: async () => {
     const { data } = await api.get<{ pendingVerifications: BackendPendingVerification[] }>('/override/pending');
     return data.pendingVerifications.map(mapPendingCase);
+  },
+
+  getMyActivity: async () => {
+    const { data } = await api.get<{ overrideRecords: BackendOverrideRecord[] }>('/override/my-activity');
+    return data.overrideRecords;
   },
 
   submitOverride: (verificationId: string, payload: OverridePayload) =>

@@ -41,16 +41,21 @@ export async function createTravelerHandler(req: Request, res: Response, next: N
       return res.status(400).json({ message: `gender must be one of: ${VALID_GENDERS.join(", ")}` });
     }
 
-    const traveler = await createTraveler({ fan, fullName, dateOfBirth, gender, nationality, photo });
+    const result = await createTraveler({ fan, fullName, dateOfBirth, gender, nationality, photo });
 
     await createAuditLog(
       req.user!.userId,
-      `Enrollment started for traveler (FAN: ${fan})`,
+      result.resumedDraft
+        ? `Resumed incomplete enrollment for traveler (FAN: ${fan})`
+        : `Enrollment started for traveler (FAN: ${fan})`,
       getClientIp(req),
       AuditLevel.INFO
     );
 
-    return res.status(201).json({ traveler });
+    return res.status(result.resumedDraft ? 200 : 201).json({
+      traveler: result.traveler,
+      resumedDraft: result.resumedDraft,
+    });
   } catch (err) {
     if ((err as any)?.statusCode === 409) {
       await createAuditLog(
@@ -70,9 +75,11 @@ export async function createTravelerHandler(req: Request, res: Response, next: N
  */
 export async function captureBiometricHandler(req: Request, res: Response, next: NextFunction) {
   try {
-    const { fan, fingerprintTemplate, irisTemplate } = req.body;
+    const { fan, fingerprintImage, irisImage, fingerprintTemplate, irisTemplate } = req.body;
+    const fingerprintSource = fingerprintImage ?? fingerprintTemplate;
+    const irisSource = irisImage ?? irisTemplate;
 
-    if (!fan || !fingerprintTemplate || !irisTemplate) {
+    if (!fan || !fingerprintSource || !irisSource) {
       await createAuditLog(
         req.user!.userId,
         `Invalid biometric enrollment request for FAN ${fan || "unknown"}: missing required fields`,
@@ -80,12 +87,12 @@ export async function captureBiometricHandler(req: Request, res: Response, next:
         AuditLevel.WARNING
       );
       return res.status(400).json({
-        message: "fan, fingerprintTemplate, and irisTemplate are required",
+        message: "fan, fingerprintImage, and irisImage are required",
       });
     }
 
     // Validate fingerprint template format
-    if (!isMockOrSeededFingerprint(fingerprintTemplate) && !isValidFingerprintFormat(fingerprintTemplate)) {
+    if (!isMockOrSeededFingerprint(fingerprintSource) && !isValidFingerprintFormat(fingerprintSource)) {
       await createAuditLog(
         req.user!.userId,
         `Invalid biometric enrollment request for FAN ${fan}: invalid fingerprint format`,
@@ -98,7 +105,7 @@ export async function captureBiometricHandler(req: Request, res: Response, next:
     }
 
     // Validate iris template format
-    if (!isMockOrSeededIris(irisTemplate) && !isValidIrisFormat(irisTemplate)) {
+    if (!isMockOrSeededIris(irisSource) && !isValidIrisFormat(irisSource)) {
       await createAuditLog(
         req.user!.userId,
         `Invalid biometric enrollment request for FAN ${fan}: invalid iris format`,
@@ -113,8 +120,8 @@ export async function captureBiometricHandler(req: Request, res: Response, next:
 
     const result = await captureBiometric({
       fan,
-      fingerprintTemplate,
-      irisTemplate,
+      fingerprintImage: fingerprintSource,
+      irisImage: irisSource,
       capturedBy: req.user!.userId,
     });
 

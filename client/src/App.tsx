@@ -6,9 +6,11 @@ import { LoginPage } from './pages/LoginPage';
 import { OfficerDashboard } from './pages/OfficerDashboard';
 import { EnrollmentPage } from './pages/EnrollmentPage';
 import { VerifyTravelerPage } from './pages/VerifyTravelerPage';
+import { OfficerManualReviewPage } from './pages/OfficerManualReviewPage';
 import { HistoryPage } from './pages/HistoryPage';
 import { SupervisorDashboard } from './pages/SupervisorDashboard';
 import { PendingReviewPage } from './pages/PendingReviewPage';
+import { SupervisorManualReviewPage } from './pages/SupervisorManualReviewPage';
 import { ReportsDashboard } from './pages/ReportsDashboard';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { UserManagementPage } from './pages/UserManagementPage';
@@ -48,10 +50,12 @@ function AuthenticatedApp() {
       {role === 'officer' && safePage === 'dashboard' && <OfficerDashboard onGoVerify={() => setPage('verify')} onGoHistory={() => setPage('history')} />}
       {role === 'officer' && safePage === 'enrollment' && <EnrollmentPage />}
       {role === 'officer' && safePage === 'verify' && <VerifyTravelerPage />}
+      {role === 'officer' && safePage === 'officer_manual_review' && <OfficerManualReviewPage />}
       {role === 'officer' && safePage === 'history' && <HistoryPage />}
 
       {role === 'supervisor' && safePage === 'supervisor' && <SupervisorDashboard onGoPending={() => setPage('pending')} />}
       {role === 'supervisor' && safePage === 'pending' && <PendingReviewPage />}
+      {role === 'supervisor' && safePage === 'supervisor_manual_review' && <SupervisorManualReviewPage />}
       {role === 'supervisor' && safePage === 'reports' && <ReportsDashboard />}
 
       {role === 'admin' && safePage === 'admin' && (

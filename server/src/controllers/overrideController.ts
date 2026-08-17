@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from "express";
-import { listPendingReview, decideOverride } from "../services/overrideService";
+import { listPendingReview, decideOverride, getOverridesBySupervisor } from "../services/overrideService";
 import { createAuditLog, getClientIp } from "../services/auditService";
 import { AuditLevel, Decision } from "../../generated/prisma";
 
@@ -13,6 +13,19 @@ export async function pending(req: Request, res: Response, next: NextFunction) {
   try {
     const logs = await listPendingReview();
     return res.status(200).json({ pendingVerifications: logs });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /api/override/my-activity
+ * Supervisor's own override activity for dashboard cards.
+ */
+export async function myActivity(req: Request, res: Response, next: NextFunction) {
+  try {
+    const overrides = await getOverridesBySupervisor(req.user!.userId);
+    return res.status(200).json({ overrideRecords: overrides });
   } catch (err) {
     next(err);
   }

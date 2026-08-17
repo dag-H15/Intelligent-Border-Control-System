@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { SystemMark } from './Logo';
 import {
   LayoutDashboard, Fingerprint, History, LogOut, Users, ScrollText, Shield,
-  Settings, ClipboardCheck, FileBarChart, ChevronDown, UserPlus,
+  Settings, ClipboardCheck, FileBarChart, ChevronDown, UserPlus, Gavel,
 } from 'lucide-react';
 import type { Role } from '../types';
 
@@ -10,9 +10,11 @@ export type PageKey =
   | 'dashboard'
   | 'enrollment'
   | 'verify'
+  | 'officer_manual_review'
   | 'history'
   | 'supervisor'
   | 'pending'
+  | 'supervisor_manual_review'
   | 'reports'
   | 'admin'
   | 'users'
@@ -26,11 +28,13 @@ const navByRole: Record<Role, NavItem[]> = {
     { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { key: 'enrollment', label: 'Enrollment', icon: UserPlus },
     { key: 'verify', label: 'Verify Traveler', icon: Fingerprint },
+    { key: 'officer_manual_review', label: 'Manual Review', icon: ClipboardCheck },
     { key: 'history', label: 'Verification History', icon: History },
   ],
   supervisor: [
     { key: 'supervisor', label: 'Supervisor Dashboard', icon: LayoutDashboard },
     { key: 'pending', label: 'Pending Review', icon: ClipboardCheck },
+    { key: 'supervisor_manual_review', label: 'Manual Review', icon: Gavel },
     { key: 'reports', label: 'Reports', icon: FileBarChart },
   ],
   admin: [

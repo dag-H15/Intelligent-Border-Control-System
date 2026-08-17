@@ -20,10 +20,13 @@ export function OfficerDashboard({ onGoVerify, onGoHistory }: Props) {
       .catch(() => { setError('Failed to load your verification activity.'); setLoading(false); });
   }, []);
 
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const todaysRecords = records.filter((record) => new Date(record.date) >= startOfToday);
   const recent = records.slice(0, 6);
-  const verified = records.filter((r) => r.result === 'verified').length;
-  const pending = records.filter((r) => r.result === 'pending').length;
-  const rejected = records.filter((r) => r.result === 'rejected').length;
+  const verified = todaysRecords.filter((r) => r.result === 'verified').length;
+  const pending = todaysRecords.filter((r) => r.result === 'pending').length;
+  const rejected = todaysRecords.filter((r) => r.result === 'rejected').length;
 
   return (
     <div className="space-y-6">
@@ -41,10 +44,10 @@ export function OfficerDashboard({ onGoVerify, onGoHistory }: Props) {
 
       {/* Stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Total Verifications" value={records.length} icon={Fingerprint} tone="navy" />
-        <StatCard label="Verified" value={verified} icon={CheckCircle2} tone="green" />
-        <StatCard label="Pending Review" value={pending} icon={Clock} tone="amber" />
-        <StatCard label="Rejected" value={rejected} icon={XCircle} tone="red" />
+        <StatCard label="Total Verifications Today" value={todaysRecords.length} icon={Fingerprint} tone="navy" />
+        <StatCard label="Verified Today" value={verified} icon={CheckCircle2} tone="green" />
+        <StatCard label="Pending Review Today" value={pending} icon={Clock} tone="amber" />
+        <StatCard label="Rejected Today" value={rejected} icon={XCircle} tone="red" />
       </div>
 
       {/* Recent verifications */}

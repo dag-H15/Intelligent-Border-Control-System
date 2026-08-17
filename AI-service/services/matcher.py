@@ -1,5 +1,29 @@
 from models.predictor import predictor
 
+
+def extract_template(payload: str, biometric_type: str) -> dict:
+    template = predictor.extract_template(payload, biometric_type)
+    return {
+        "template": template,
+        "biometricType": biometric_type,
+        "encoding": "base64",
+    }
+
+
+def compare_templates(
+    captured_data: str,
+    stored_template: str,
+    biometric_type: str,
+    threshold: float = 85.0,
+) -> dict:
+    score = predictor.compare_template(captured_data, stored_template, biometric_type)
+    return {
+        "score": score,
+        "match": score >= threshold,
+        "biometricType": biometric_type,
+    }
+
+
 def evaluate_verification(
     traveler_id: int | None,
     capture_mode: str,
@@ -7,23 +31,13 @@ def evaluate_verification(
     iris_captured: str,
     ref_fingerprint: str,
     ref_iris: str,
-    threshold: float = 95.0
+    threshold: float = 95.0,
 ) -> dict:
-    """
-    Evaluates captured fingerprint and iris against stored reference templates.
-    Returns calculated scores and system decision.
-    """
-    fp_score = predictor.predict_match_score(
-        fingerprint_captured, ref_fingerprint, biometric_type="fingerprint", capture_mode=capture_mode
-    )
+    """Compatibility wrapper that keeps the old combined verification response available."""
+    fp_result = compare_templates(fingerprint_captured, ref_fingerprint, "fingerprint", threshold)
+    iris_result = compare_templates(iris_captured, ref_iris, "iris", threshold)
+    final_score = round((fp_result["score"] + iris_result["score"]) / 2, 2)
 
-    iris_score = predictor.predict_match_score(
-        iris_captured, ref_iris, biometric_type="iris", capture_mode=capture_mode
-    )
-
-    final_score = round((fp_score + iris_score) / 2, 2)
-
-    # Decision logic based on configurable threshold
     if final_score >= threshold:
         decision = "VERIFIED"
     elif final_score >= 85.0:
@@ -32,8 +46,8 @@ def evaluate_verification(
         decision = "REJECTED"
 
     return {
-        "fingerprintScore": fp_score,
-        "irisScore": iris_score,
+        "fingerprintScore": fp_result["score"],
+        "irisScore": iris_result["score"],
         "finalScore": final_score,
-        "decision": decision
+        "decision": decision,
     }

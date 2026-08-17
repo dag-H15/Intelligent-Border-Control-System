@@ -3,8 +3,8 @@ import type { PageKey } from './AppShell';
 
 // Which pages each role is allowed to access
 export const allowedPages: Record<Role, PageKey[]> = {
-  officer: ['dashboard', 'enrollment', 'verify', 'history'],
-  supervisor: ['supervisor', 'pending', 'reports'],
+  officer: ['dashboard', 'enrollment', 'verify', 'officer_manual_review', 'history'],
+  supervisor: ['supervisor', 'pending', 'supervisor_manual_review', 'reports'],
   admin: ['admin', 'users', 'audit', 'settings'],
 };
 

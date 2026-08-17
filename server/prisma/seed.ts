@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { Gender, PrismaClient, Role } from "../generated/prisma";
+import { EnrollmentStatus, Gender, PrismaClient, Role } from "../generated/prisma";
 import { PrismaPg } from "@prisma/adapter-pg";
 import bcrypt from "bcrypt";
 
@@ -129,12 +129,19 @@ async function main() {
           gender: travelerData.gender,
           nationality: travelerData.nationality,
           photo: travelerData.photo,
+          enrollmentStatus: EnrollmentStatus.COMPLETED,
         },
       });
 
       console.log(`Created traveler: ${traveler.fan} / ${traveler.fullName}`);
     } else {
       console.log(`Skipping traveler ${travelerData.fan} - already exists`);
+      if (traveler.enrollmentStatus !== EnrollmentStatus.COMPLETED) {
+        traveler = await prisma.traveler.update({
+          where: { id: traveler.id },
+          data: { enrollmentStatus: EnrollmentStatus.COMPLETED },
+        });
+      }
     }
 
     const existingBiometric = await prisma.biometric.findUnique({ where: { travelerId: traveler.id } });

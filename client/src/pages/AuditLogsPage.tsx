@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { auditService, type AuditEntry } from '../services/auditService';
-import { Search, Filter, Download, Info, ShieldAlert, AlertTriangle, Calendar, Loader2, AlertCircle } from 'lucide-react';
+import { Search, Filter, Info, ShieldAlert, AlertTriangle, Calendar, Loader2, AlertCircle, LogIn, Gavel, UserPlus, Fingerprint } from 'lucide-react';
 
 export function AuditLogsPage() {
   const [logs, setLogs] = useState<AuditEntry[]>([]);
@@ -29,26 +29,9 @@ export function AuditLogsPage() {
     return mq && ms && md;
   });
 
-  const handleExportCSV = () => {
-    const headers = ['Log ID', 'User', 'Action', 'Time', 'IP Address', 'Severity'];
-    const rows = filtered.map((l) => [
-      l.id,
-      `"${l.user.replace(/"/g, '""')}"`,
-      `"${l.action.replace(/"/g, '""')}"`,
-      `"${l.time}"`,
-      `"${l.ip}"`,
-      l.severity.toUpperCase(),
-    ]);
-
-    const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `audit_logs_${new Date().toISOString().slice(0, 10)}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const todaysLogs = logs.filter((entry) => new Date(entry.time) >= startOfToday);
 
   return (
     <div className="space-y-6">
@@ -89,17 +72,16 @@ export function AuditLogsPage() {
               <option value="30d">Last 30 days</option>
             </select>
           </div>
-          <button onClick={handleExportCSV} className="btn-secondary">
-            <Download size={15} /> Export CSV
-          </button>
         </div>
       </div>
 
       {/* Severity summary */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <SevCard label="Info" count={logs.filter((l) => l.severity === 'info').length} icon={Info} tone="navy" />
-        <SevCard label="Warning" count={logs.filter((l) => l.severity === 'warning').length} icon={AlertTriangle} tone="amber" />
-        <SevCard label="Critical" count={logs.filter((l) => l.severity === 'critical').length} icon={ShieldAlert} tone="red" />
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+        <SevCard label="Audit Events Today" count={todaysLogs.length} icon={Info} tone="navy" />
+        <SevCard label="Logins Today" count={todaysLogs.filter((l) => /login/i.test(l.action)).length} icon={LogIn} tone="amber" />
+        <SevCard label="Overrides Today" count={todaysLogs.filter((l) => /override/i.test(l.action)).length} icon={Gavel} tone="red" />
+        <SevCard label="Enrollments Today" count={todaysLogs.filter((l) => /enrollment/i.test(l.action)).length} icon={UserPlus} tone="navy" />
+        <SevCard label="Verifications Today" count={todaysLogs.filter((l) => /verification/i.test(l.action)).length} icon={Fingerprint} tone="amber" />
       </div>
 
       {/* Table */}

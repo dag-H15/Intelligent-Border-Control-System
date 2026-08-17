@@ -36,6 +36,21 @@ export interface OfficerActivitySummaryResponse {
   summary: Array<{ officerId: number; officerName: string; verifications: number }>;
 }
 
+export interface ManualReviewSummaryResponse {
+  report: BackendReportRecord;
+  summary: Array<{
+    id: number;
+    travelerName: string;
+    passportNo: string;
+    manualReviewType: string;
+    officer: string;
+    supervisor: string;
+    decision: string;
+    submissionDate: string;
+    reviewDate: string;
+  }>;
+}
+
 function mapReportRecord(report: BackendReportRecord): ReportRecord {
   return {
     id: String(report.id),
@@ -60,6 +75,11 @@ export const reportService = {
 
   officerActivity: async (params: ReportParams) => {
     const { data } = await api.post<OfficerActivitySummaryResponse>('/reports/officer-activity', params);
+    return data;
+  },
+
+  manualReviewSummary: async (params: ReportParams) => {
+    const { data } = await api.post<ManualReviewSummaryResponse>('/reports/manual-review-summary', params);
     return data;
   },
 

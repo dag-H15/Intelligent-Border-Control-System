@@ -3,15 +3,21 @@ import { authService } from '../services/authService';
 import api, { getApiErrorMessage } from '../services/api';
 import { normalizeRole, type AuthUser, type Role } from '../types';
 
-function readStoredUser(): AuthUser | null {
-  try {
-    const stored = localStorage.getItem('iabc_user');
-    return stored ? (JSON.parse(stored) as AuthUser) : null;
-  } catch {
-    localStorage.removeItem('iabc_user');
-    localStorage.removeItem('iabc_token');
-    localStorage.removeItem('iabc_last_active');
-    return null;
+function clearAuthArtifacts() {
+  const keys = ['iabc_token', 'iabc_user', 'iabc_last_active', 'iabc_session_timeout'];
+  for (const key of keys) {
+    localStorage.removeItem(key);
+    sessionStorage.removeItem(key);
+  }
+
+  if (typeof document !== 'undefined') {
+    document.cookie
+      .split(';')
+      .map((cookie) => cookie.trim().split('=')[0])
+      .filter((name) => name.startsWith('iabc_'))
+      .forEach((name) => {
+        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
+      });
   }
 }
 
@@ -29,18 +35,26 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(() => readStoredUser());
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sessionExpiredMessage, setSessionExpiredMessage] = useState<string | null>(null);
 
-  const logout = useCallback((expiredReason?: string) => {
-    localStorage.removeItem('iabc_token');
-    localStorage.removeItem('iabc_user');
-    localStorage.removeItem('iabc_last_active');
+  useEffect(() => {
+    clearAuthArtifacts();
     setUser(null);
+    setError(null);
+    setSessionExpiredMessage(null);
+  }, []);
+
+  const logout = useCallback((expiredReason?: string) => {
+    clearAuthArtifacts();
+    setUser(null);
+    setError(null);
     if (expiredReason) {
       setSessionExpiredMessage(expiredReason);
+    } else {
+      setSessionExpiredMessage(null);
     }
   }, []);
 

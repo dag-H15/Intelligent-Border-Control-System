@@ -1,11 +1,12 @@
 import { useState, useRef } from 'react';
 import { verificationService } from '../services/verificationService';
 import { travelerService } from '../services/travelerService';
+import { manualReviewService } from '../services/manualReviewService';
 import { scannerService } from '../services/scannerService';
 import type { Traveler, VerificationResult } from '../types';
 import {
   Search, Fingerprint, ScanEye, Upload, CheckCircle2, XCircle, Clock, ShieldCheck,
-  User, Globe, Calendar, FileText, AlertCircle, Loader2, RotateCcw, Cpu, ArrowRight,
+  User, Globe, Calendar, FileText, AlertCircle, Loader2, RotateCcw, Cpu, ArrowRight, FileUp,
 } from 'lucide-react';
 
 const decisionThresholds = {
@@ -17,6 +18,7 @@ const decisionThresholds = {
 
 type Stage = 'lookup' | 'found' | 'uploading' | 'processing' | 'result';
 type CaptureMode = 'SIMULATION' | 'SCANNER';
+type InjuryReason = 'FINGERPRINT_INJURY' | 'IRIS_INJURY' | 'BIOMETRIC_UNAVAILABLE';
 
 export function VerifyTravelerPage() {
   const [stage, setStage] = useState<Stage>('lookup');
@@ -30,6 +32,12 @@ export function VerifyTravelerPage() {
   const [result, setResult] = useState<VerificationResult>('verified');
   const [scores, setScores] = useState({ fingerprint: 0, iris: 0, final: 0 });
   const [verifyError, setVerifyError] = useState('');
+  const [manualReviewReason, setManualReviewReason] = useState<InjuryReason>('BIOMETRIC_UNAVAILABLE');
+  const [manualReviewNotes, setManualReviewNotes] = useState('');
+  const [manualReviewFiles, setManualReviewFiles] = useState<File[]>([]);
+  const [manualReviewSubmitting, setManualReviewSubmitting] = useState(false);
+  const [manualReviewError, setManualReviewError] = useState('');
+  const [manualReviewSuccess, setManualReviewSuccess] = useState('');
   const fpInputRef = useRef<HTMLInputElement>(null);
   const irisInputRef = useRef<HTMLInputElement>(null);
 
@@ -156,6 +164,49 @@ export function VerifyTravelerPage() {
     }
   };
 
+  const handleManualReviewFiles = (files: FileList | null) => {
+    if (!files) {
+      setManualReviewFiles([]);
+      return;
+    }
+
+    const selected = Array.from(files).slice(0, 5).filter((file) => {
+      const allowedMimeTypes = ['application/pdf', 'image/jpeg', 'image/png'];
+      const allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png'];
+      const extension = file.name.split('.').pop()?.toLowerCase() || '';
+      return allowedMimeTypes.includes(file.type) && allowedExtensions.includes(extension);
+    });
+
+    setManualReviewFiles(selected);
+  };
+
+  const submitManualReview = async () => {
+    if (!traveler || !manualReviewNotes.trim()) return;
+    setManualReviewSubmitting(true);
+    setManualReviewError('');
+    setManualReviewSuccess('');
+
+    try {
+      await manualReviewService.create({
+        travelerId: traveler.id,
+        verificationId: undefined,
+        reason: manualReviewReason,
+        officerNotes: manualReviewNotes.trim(),
+        attachments: manualReviewFiles,
+      });
+      setManualReviewSuccess('Manual review request submitted.');
+      setManualReviewNotes('');
+      setManualReviewFiles([]);
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        'Failed to create manual review request.';
+      setManualReviewError(msg);
+    } finally {
+      setManualReviewSubmitting(false);
+    }
+  };
+
   const reset = () => {
     setStage('lookup');
     setFiydaId('');
@@ -212,7 +263,7 @@ export function VerifyTravelerPage() {
                 )}
               </div>
               <div className="mt-2 flex justify-center">
-                <span className={traveler.enrollmentStatus === 'ENROLLED' ? 'badge-verified' : 'badge-pending'}>
+                <span className={traveler.enrollmentStatus === 'COMPLETED' ? 'badge-verified' : 'badge-pending'}>
                   {traveler.enrollmentStatus}
                 </span>
               </div>
@@ -320,6 +371,7 @@ export function VerifyTravelerPage() {
           )}
         </div>
       )}
+
 
       {/* Section 5 — Result */}
       {stage === 'result' && (

@@ -2,7 +2,7 @@ import prisma from "../config/prisma";
 import { Decision } from "../../generated/prisma";
 import { DEFAULT_THRESHOLD } from "../config/constants";
 import { decideVerification } from "./decisionEngine";
-import { getBiometricScores, type CaptureMode } from "./aiClient";
+import { compareBiometricTemplate, type CaptureMode } from "./aiClient";
 
 interface RunVerificationInput {
   travelerId?: number;
@@ -25,7 +25,7 @@ export async function runVerification(input: RunVerificationInput) {
     threshold = settings.approvalThreshold ?? DEFAULT_THRESHOLD;
   }
 
-  const traveler = await prisma.traveler.findFirst({
+  let traveler = await prisma.traveler.findFirst({
     where: input.travelerId ? { id: input.travelerId } : { fan: input.fan },
     include: { biometric: true },
   });
@@ -36,21 +36,41 @@ export async function runVerification(input: RunVerificationInput) {
     throw error;
   }
 
-  if (!traveler.biometric || traveler.enrollmentStatus !== "ENROLLED") {
+  if (traveler.biometric && traveler.enrollmentStatus !== "COMPLETED") {
+    traveler = await prisma.traveler.update({
+      where: { id: traveler.id },
+      data: { enrollmentStatus: "COMPLETED" },
+      include: { biometric: true },
+    });
+  }
+
+  if (!traveler.biometric || traveler.enrollmentStatus !== "COMPLETED") {
     const error = new Error("Traveler is not fully enrolled; no biometric templates on file");
     (error as any).statusCode = 409;
     throw error;
   }
 
-  const scores = await getBiometricScores({
-    captureMode: input.captureMode,
-    fingerprintBuffer: input.fingerprintImage,
-    irisBuffer: input.irisImage,
-    fingerprintData: input.fingerprintData,
-    irisData: input.irisData,
-    referenceFingerprint: traveler.biometric.fingerprintTemplate,
-    referenceIris: traveler.biometric.irisTemplate,
+  const fingerprintComparison = await compareBiometricTemplate({
+    biometricType: "fingerprint",
+    imageBuffer: input.fingerprintImage,
+    imageData: input.fingerprintData,
+    storedTemplate: traveler.biometric.fingerprintTemplate,
+    threshold,
   });
+
+  const irisComparison = await compareBiometricTemplate({
+    biometricType: "iris",
+    imageBuffer: input.irisImage,
+    imageData: input.irisData,
+    storedTemplate: traveler.biometric.irisTemplate,
+    threshold,
+  });
+
+  const scores = {
+    fingerprintScore: fingerprintComparison.score,
+    irisScore: irisComparison.score,
+    finalScore: Math.round(((fingerprintComparison.score + irisComparison.score) / 2) * 100) / 100,
+  };
 
   const systemDecision = decideVerification(scores.finalScore, threshold);
 

@@ -43,11 +43,14 @@ export function AdminDashboard({ onGoUsers, onGoAudit, onGoSettings }: Props) {
       });
   }, []);
 
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const todaysLogs = logs.filter((entry) => new Date(entry.time) >= startOfToday);
   const officers = users.filter((u) => u.role === 'OFFICER').length;
   const supervisors = users.filter((u) => u.role === 'SUPERVISOR').length;
-  const infoCount = logs.filter((l) => l.severity === 'info').length;
-  const warningCount = logs.filter((l) => l.severity === 'warning').length;
-  const criticalCount = logs.filter((l) => l.severity === 'critical').length;
+  const infoCount = todaysLogs.filter((l) => l.severity === 'info').length;
+  const warningCount = todaysLogs.filter((l) => l.severity === 'warning').length;
+  const criticalCount = todaysLogs.filter((l) => l.severity === 'critical').length;
   const lockedAccounts = users.filter((u) => (u as any).isLocked).length;
 
   return (

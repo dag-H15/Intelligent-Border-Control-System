@@ -20,6 +20,8 @@ model User {
   auditLogs          AuditLog[]
   capturedBiometrics Biometric[]       @relation("BiometricCapturedBy")
   overrideRecords    OverrideRecord[]  @relation("SupervisorOverrides")
+  manualReviewRequests ManualReviewRequest[] @relation("ManualReviewOfficers")
+  manualReviews       ManualReviewRequest[]   @relation("ManualReviewSupervisors")
   reports            Report[]
   verificationLogs   VerificationLog[] @relation("OfficerVerifications")
 
@@ -34,12 +36,13 @@ model Traveler {
   gender           Gender
   nationality      String
   photo            String?
-  enrollmentStatus EnrollmentStatus  @default(ENROLLED) @map("enrollment_status")
+  enrollmentStatus EnrollmentStatus  @default(DRAFT) @map("enrollment_status")
   enrollmentDate   DateTime          @default(now()) @map("enrollment_date")
   createdAt        DateTime          @default(now()) @map("created_at")
   updatedAt        DateTime          @updatedAt @map("updated_at")
   biometric        Biometric?
   verificationLogs VerificationLog[]
+  manualReviewRequests ManualReviewRequest[]
 
   @@map("travelers")
 }
@@ -72,6 +75,7 @@ model VerificationLog {
   finalDecision    Decision?          @map("final_decision")
   timestamp        DateTime           @default(now())
   overrideRecord   OverrideRecord?
+  manualReviewRequest ManualReviewRequest?
   officer          User               @relation("OfficerVerifications", fields: [officerId], references: [id])
   traveler         Traveler           @relation(fields: [travelerId], references: [id])
 
@@ -94,6 +98,32 @@ model OverrideRecord {
 
   @@index([supervisorId])
   @@map("override_records")
+}
+
+model ManualReviewRequest {
+  id             Int                  @id @default(autoincrement())
+  travelerId     Int                  @map("traveler_id")
+  officerId      Int                  @map("officer_id")
+  verificationId Int?                 @unique @map("verification_id")
+  reason         ManualReviewReason
+  officerNotes   String               @map("officer_notes")
+  attachments    Json                 @default("[]")
+  decision       ManualReviewDecision?
+  status         ManualReviewStatus   @default(PENDING)
+  supervisorId   Int?                 @map("supervisor_id")
+  supervisorNotes String?              @map("supervisor_notes")
+  createdAt      DateTime             @default(now()) @map("created_at")
+  updatedAt      DateTime             @updatedAt @map("updated_at")
+  traveler       Traveler             @relation(fields: [travelerId], references: [id])
+  officer        User                 @relation("ManualReviewOfficers", fields: [officerId], references: [id])
+  supervisor     User?                @relation("ManualReviewSupervisors", fields: [supervisorId], references: [id])
+  verification   VerificationLog?     @relation(fields: [verificationId], references: [id])
+
+  @@index([travelerId])
+  @@index([officerId])
+  @@index([supervisorId])
+  @@index([status])
+  @@map("manual_review_requests")
 }
 
 model AuditLog {
@@ -145,11 +175,31 @@ enum ReportType {
   VERIFICATION_SUMMARY
   OVERRIDE_SUMMARY
   OFFICER_ACTIVITY
+  MANUAL_REVIEW_SUMMARY
 }
 
 enum EnrollmentStatus {
+  DRAFT
+  COMPLETED
+}
+
+enum ManualReviewReason {
+  FINGERPRINT_INJURY
+  IRIS_INJURY
+  BIOMETRIC_UNAVAILABLE
+}
+
+enum ManualReviewDecision {
+  APPROVED_OVERRIDE
+  REJECTED
+  REQUEST_RE_ENROLLMENT
+}
+
+enum ManualReviewStatus {
   PENDING
-  ENROLLED
+  APPROVED
+  REJECTED
+  RE_ENROLLMENT_REQUESTED
 }
 
 enum VerificationStatus {

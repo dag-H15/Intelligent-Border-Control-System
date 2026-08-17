@@ -9,6 +9,20 @@ interface DecideOverrideInput {
   reason: string;
 }
 
+export async function getOverridesBySupervisor(supervisorId: number) {
+  return prisma.overrideRecord.findMany({
+    where: { supervisorId },
+    orderBy: { timestamp: "desc" },
+    include: {
+      verification: {
+        include: {
+          traveler: { select: { fan: true, fullName: true } },
+        },
+      },
+    },
+  });
+}
+
 /** All verification logs currently awaiting supervisor review. */
 export async function listPendingReview() {
   return getPendingReview();
