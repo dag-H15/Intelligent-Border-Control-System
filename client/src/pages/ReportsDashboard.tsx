@@ -4,36 +4,52 @@ import {
   reportService,
   type ReportRecord,
   type ReportParams,
+  type OfficerOption,
   type VerificationSummaryResponse,
   type OverrideSummaryResponse,
   type OfficerActivitySummaryResponse,
   type ManualReviewSummaryResponse,
 } from '../services/reportService';
-import { BarChart, AxisLabels, DonutChart, ChartLabels } from '../components/Charts';
-import { FileBarChart, Download, Calendar, Filter, FileText, CheckCircle2, Loader2, AlertCircle } from 'lucide-react';
+import { DonutChart, ChartLabels } from '../components/Charts';
+import {
+  FileBarChart, Download, Calendar, Filter, FileText,
+  CheckCircle2, Loader2, AlertCircle,
+} from 'lucide-react';
 
 type ReportType = 'verification' | 'override' | 'officer' | 'manual_review';
-type GeneratedReport = VerificationSummaryResponse | OverrideSummaryResponse | OfficerActivitySummaryResponse | ManualReviewSummaryResponse;
+type GeneratedReport =
+  | VerificationSummaryResponse
+  | OverrideSummaryResponse
+  | OfficerActivitySummaryResponse
+  | ManualReviewSummaryResponse;
 
 export function ReportsDashboard() {
   const { user } = useAuth();
-  const [reportType, setReportType] = useState<ReportType>('verification');
-  const [dateRange, setDateRange] = useState<'7d' | '30d' | '90d' | 'ytd'>('7d');
-  const [selectedOfficer, setSelectedOfficer] = useState('');
-  const [generated, setGenerated] = useState(false);
-  const [generating, setGenerating] = useState(false);
-  const [reportData, setReportData] = useState<GeneratedReport | null>(null);
-  const [genError, setGenError] = useState('');
 
-  const [prevReports, setPrevReports] = useState<ReportRecord[]>([]);
-  const [prevLoading, setPrevLoading] = useState(true);
-  const [prevError, setPrevError] = useState('');
+  // --- Generate-report state ---
+  const [reportType, setReportType]   = useState<ReportType>('verification');
+  const [dateRange, setDateRange]     = useState<'7d' | '30d' | '90d' | 'ytd'>('7d');
+  /** Numeric DB id of the selected officer, or undefined for "all officers". */
+  const [selectedOfficerId, setSelectedOfficerId] = useState<number | undefined>(undefined);
+  const [generated, setGenerated]     = useState(false);
+  const [generating, setGenerating]   = useState(false);
+  const [reportData, setReportData]   = useState<GeneratedReport | null>(null);
+  const [genError, setGenError]       = useState('');
 
-  // Previous reports filters
-  const [prevDate, setPrevDate] = useState<'all' | '7d' | '30d' | '90d'>('all');
-  const [prevBy, setPrevBy] = useState<'all' | string>('all');
-  const [prevType, setPrevType] = useState<'all' | ReportType>('all');
+  // --- Officer dropdown state ---
+  const [officers, setOfficers]           = useState<OfficerOption[]>([]);
+  const [officersLoading, setOfficersLoading] = useState(false);
+  const [officersError, setOfficersError] = useState('');
 
+  // --- Previous-reports state ---
+  const [prevReports, setPrevReports]   = useState<ReportRecord[]>([]);
+  const [prevLoading, setPrevLoading]   = useState(true);
+  const [prevError, setPrevError]       = useState('');
+  const [prevDate, setPrevDate]         = useState<'all' | '7d' | '30d' | '90d'>('all');
+  const [prevBy, setPrevBy]             = useState<'all' | string>('all');
+  const [prevType, setPrevType]         = useState<'all' | ReportType>('all');
+
+  // Load previous reports on mount
   useEffect(() => {
     reportService
       .getReports()
@@ -41,21 +57,40 @@ export function ReportsDashboard() {
       .catch(() => { setPrevError('Failed to load previous reports.'); setPrevLoading(false); });
   }, []);
 
+  // Load officer list when the officer report type is selected
+  useEffect(() => {
+    if (reportType !== 'officer') return;
+    setOfficersLoading(true);
+    setOfficersError('');
+    reportService
+      .getOfficers()
+      .then((data) => { setOfficers(data); setOfficersLoading(false); })
+      .catch(() => {
+        setOfficersError('Failed to load officers.');
+        setOfficersLoading(false);
+      });
+  }, [reportType]);
+
   const typeLabel: Record<ReportType, string> = {
-    verification: 'Verification Summary',
-    override: 'Override Summary',
-    officer: 'Officer Activity',
+    verification:  'Verification Summary',
+    override:      'Override Summary',
+    officer:       'Officer Activity',
     manual_review: 'Manual Review Summary',
   };
 
-  const dateRangeToParams = (range: '7d' | '30d' | '90d' | 'ytd'): ReportParams => {
+  /**
+   * Convert a UI date-range key to { startDate, endDate } YYYY-MM-DD strings.
+   * The end date is always today so the backend's toEndOfDay() will include
+   * all records up to 23:59:59.999 UTC on that day.
+   */
+  const dateRangeToParams = (range: '7d' | '30d' | '90d' | 'ytd'): { startDate: string; endDate: string } => {
     const now = new Date();
     const end = now.toISOString().slice(0, 10);
     let start: string;
-    if (range === '7d') start = new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 10);
-    else if (range === '30d') start = new Date(now.getTime() - 30 * 86400000).toISOString().slice(0, 10);
-    else if (range === '90d') start = new Date(now.getTime() - 90 * 86400000).toISOString().slice(0, 10);
-    else start = new Date(now.getFullYear(), 0, 1).toISOString().slice(0, 10);
+    if      (range === '7d')  start = new Date(now.getTime() - 7  * 86_400_000).toISOString().slice(0, 10);
+    else if (range === '30d') start = new Date(now.getTime() - 30 * 86_400_000).toISOString().slice(0, 10);
+    else if (range === '90d') start = new Date(now.getTime() - 90 * 86_400_000).toISOString().slice(0, 10);
+    else                      start = new Date(now.getFullYear(), 0, 1).toISOString().slice(0, 10);
     return { startDate: start, endDate: end };
   };
 
@@ -63,22 +98,26 @@ export function ReportsDashboard() {
     setGenerating(true);
     setGenerated(false);
     setGenError('');
+    setReportData(null);
     try {
-      const params = dateRangeToParams(dateRange);
-      if (reportType === 'verification') {
-        const data = await reportService.verificationSummary(params);
-        setReportData(data);
-      } else if (reportType === 'override') {
-        const data = await reportService.overrideSummary(params);
-        setReportData(data);
-      } else if (reportType === 'officer') {
-        const data = await reportService.officerActivity({ ...params, officerId: selectedOfficer });
-        setReportData(data);
-      } else {
-        const data = await reportService.manualReviewSummary(params);
-        setReportData(data);
-      }
+      const dateParams = dateRangeToParams(dateRange);
+      const params: ReportParams = {
+        ...dateParams,
+        ...(reportType === 'officer' && selectedOfficerId !== undefined
+          ? { officerId: selectedOfficerId }
+          : {}),
+      };
+
+      let data: GeneratedReport;
+      if      (reportType === 'verification')  data = await reportService.verificationSummary(params);
+      else if (reportType === 'override')      data = await reportService.overrideSummary(params);
+      else if (reportType === 'officer')       data = await reportService.officerActivity(params);
+      else                                     data = await reportService.manualReviewSummary(params);
+
+      setReportData(data);
       setGenerated(true);
+      // Refresh the previous-reports list to show the new entry
+      reportService.getReports().then(setPrevReports).catch(() => {});
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
@@ -89,109 +128,155 @@ export function ReportsDashboard() {
     }
   };
 
-  const handleDownloadCSV = (dataToExport?: GeneratedReport, typeToExport?: ReportType) => {
-    const targetData = dataToExport || reportData;
-    const targetType = typeToExport || reportType;
-    if (!targetData) return;
-
-    const params = dateRangeToParams(dateRange);
-    const nowStr = new Date().toLocaleString();
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const userName = user?.name || 'System Administrator';
+  // --------------------------------------------------------------------------
+  // CSV download for the currently generated report
+  // --------------------------------------------------------------------------
+  const buildCSVLines = (
+    targetData: GeneratedReport,
+    targetType: ReportType,
+    startDate: string,
+    endDate: string,
+  ): string[] => {
+    const nowStr    = new Date().toLocaleString();
+    const userName  = user?.name || 'System Administrator';
+    const officerLabel =
+      targetType === 'officer' && selectedOfficerId !== undefined
+        ? (officers.find((o) => o.id === selectedOfficerId)?.name ?? String(selectedOfficerId))
+        : undefined;
 
     const lines: string[] = [];
     lines.push(`Report Type,${typeLabel[targetType]}`);
-    lines.push(`Date Range,${params.startDate} to ${params.endDate}`);
+    lines.push(`Date Range,${startDate} to ${endDate}`);
+    if (officerLabel) lines.push(`Officer,"${officerLabel}"`);
     lines.push(`Generated By,"${userName}"`);
     lines.push(`Generated Date,"${nowStr}"`);
-    lines.push(''); // blank row separator
+    lines.push('');
 
     if (targetType === 'verification') {
-      const summary = (targetData as VerificationSummaryResponse).summary || { total: 0, verified: 0, pendingSupervisorReview: 0, rejected: 0 };
+      const s = (targetData as VerificationSummaryResponse).summary ?? { total: 0, verified: 0, pendingSupervisorReview: 0, rejected: 0 };
       lines.push('Metric,Value');
-      lines.push(`Total Verifications,${summary.total ?? 0}`);
-      lines.push(`Verified,${summary.verified ?? 0}`);
-      lines.push(`Pending Supervisor Review,${summary.pendingSupervisorReview ?? 0}`);
-      lines.push(`Rejected,${summary.rejected ?? 0}`);
+      lines.push(`Total Verifications,${s.total ?? 0}`);
+      lines.push(`Verified,${s.verified ?? 0}`);
+      lines.push(`Pending Supervisor Review,${s.pendingSupervisorReview ?? 0}`);
+      lines.push(`Rejected,${s.rejected ?? 0}`);
     } else if (targetType === 'override') {
-      const summary = (targetData as OverrideSummaryResponse).summary || { total: 0, approvedToVerified: 0, approvedToRejected: 0 };
+      const s = (targetData as OverrideSummaryResponse).summary ?? { total: 0, approvedToVerified: 0, approvedToRejected: 0 };
       lines.push('Metric,Value');
-      lines.push(`Total Overrides,${summary.total ?? 0}`);
-      lines.push(`Approved to Verified,${summary.approvedToVerified ?? 0}`);
-      lines.push(`Approved to Rejected,${summary.approvedToRejected ?? 0}`);
+      lines.push(`Total Overrides,${s.total ?? 0}`);
+      lines.push(`Approved to Verified,${s.approvedToVerified ?? 0}`);
+      lines.push(`Approved to Rejected,${s.approvedToRejected ?? 0}`);
     } else if (targetType === 'officer') {
-      const summary = (targetData as OfficerActivitySummaryResponse).summary || [];
+      const s = (targetData as OfficerActivitySummaryResponse).summary ?? [];
       lines.push('Officer ID,Officer Name,Verifications Count');
-      summary.forEach((item) => {
+      s.forEach((item) => {
         lines.push(`${item.officerId},"${item.officerName.replace(/"/g, '""')}",${item.verifications}`);
       });
     } else {
-      const summary = ((targetData as ManualReviewSummaryResponse).summary || []) as ManualReviewSummaryResponse['summary'];
+      const s = (targetData as ManualReviewSummaryResponse).summary ?? [];
       lines.push('Traveler Name,Passport Number,Manual Review Type,Officer,Supervisor,Decision,Submission Date,Review Date');
-      summary.forEach((item) => {
-        lines.push(`"${item.travelerName.replace(/"/g, '""')}",` +
-                   `"${item.passportNo.replace(/"/g, '""')}",` +
-                   `"${item.manualReviewType.replace(/"/g, '""')}",` +
-                   `"${item.officer.replace(/"/g, '""')}",` +
-                   `"${item.supervisor.replace(/"/g, '""')}",` +
-                   `"${item.decision.replace(/"/g, '""')}",` +
-                   `"${new Date(item.submissionDate).toLocaleString()}",` +
-                   `"${new Date(item.reviewDate).toLocaleString()}"`);
+      s.forEach((item) => {
+        lines.push(
+          `"${item.travelerName.replace(/"/g, '""')}",` +
+          `"${item.passportNo.replace(/"/g, '""')}",` +
+          `"${item.manualReviewType.replace(/"/g, '""')}",` +
+          `"${item.officer.replace(/"/g, '""')}",` +
+          `"${item.supervisor.replace(/"/g, '""')}",` +
+          `"${item.decision.replace(/"/g, '""')}",` +
+          `"${new Date(item.submissionDate).toLocaleString()}",` +
+          `"${new Date(item.reviewDate).toLocaleString()}"`,
+        );
       });
     }
+    return lines;
+  };
 
-    const csvContent = lines.join('\n');
+  const triggerDownload = (csvContent: string, filename: string) => {
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
+    const url  = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.href = url;
-    link.download = `${targetType}_summary_${todayStr}.csv`;
+    link.href     = url;
+    link.download = filename;
     link.click();
     URL.revokeObjectURL(url);
   };
 
+  const handleDownloadCSV = () => {
+    if (!reportData) return;
+    const { startDate, endDate } = dateRangeToParams(dateRange);
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const lines    = buildCSVLines(reportData, reportType, startDate, endDate);
+    triggerDownload(lines.join('\n'), `${reportType}_report_${todayStr}.csv`);
+  };
+
+  /**
+   * Download a previously generated report.
+   * Uses the dates stored on the report record itself (not a hardcoded 30-day
+   * window) so the re-query returns the same data as the original generation.
+   */
   const handleDownloadPrevious = async (record: ReportRecord) => {
-    const params = dateRangeToParams('30d');
     let rType: ReportType = 'verification';
-    if (record.type.toLowerCase().includes('override')) rType = 'override';
-    else if (record.type.toLowerCase().includes('officer')) rType = 'officer';
-    else if (record.type.toLowerCase().includes('manual')) rType = 'manual_review';
+    const lower = record.type.toLowerCase();
+    if      (lower.includes('override'))      rType = 'override';
+    else if (lower.includes('officer'))       rType = 'officer';
+    else if (lower.includes('manual'))        rType = 'manual_review';
+
+    // Use the report's own stored dates; fall back to last-30-days only when
+    // the backend didn't return them (old records before this fix).
+    const fallback   = dateRangeToParams('30d');
+    const startDate  = record.startDate
+      ? record.startDate.slice(0, 10)
+      : fallback.startDate;
+    const endDate    = record.endDate
+      ? record.endDate.slice(0, 10)
+      : fallback.endDate;
+
+    const params: ReportParams = { startDate, endDate };
 
     try {
       let data: GeneratedReport;
-      if (rType === 'verification') data = await reportService.verificationSummary(params);
-      else if (rType === 'override') data = await reportService.overrideSummary(params);
-      else if (rType === 'officer') data = await reportService.officerActivity(params);
-      else data = await reportService.manualReviewSummary(params);
+      if      (rType === 'verification')  data = await reportService.verificationSummary(params);
+      else if (rType === 'override')      data = await reportService.overrideSummary(params);
+      else if (rType === 'officer')       data = await reportService.officerActivity(params);
+      else                               data = await reportService.manualReviewSummary(params);
 
-      handleDownloadCSV(data, rType);
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const lines    = buildCSVLines(data, rType, startDate, endDate);
+      triggerDownload(lines.join('\n'), `${rType}_report_${record.id}_${todayStr}.csv`);
     } catch {
-      // Fallback simple download
-      const csvContent = `Report Type,${record.type}\nGenerated By,"${record.generatedBy}"\nGenerated Date,"${record.date}"\nStatus,${record.status}\n`;
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${record.name.toLowerCase().replace(/\s+/g, '_')}.csv`;
-      link.click();
-      URL.revokeObjectURL(url);
+      // Fallback: export just the metadata we already have
+      const csvContent =
+        `Report Type,${record.type}\nGenerated By,"${record.generatedBy}"\n` +
+        `Generated Date,"${record.date}"\nStatus,${record.status}\n`;
+      triggerDownload(csvContent, `${record.name.toLowerCase().replace(/\s+/g, '_')}.csv`);
     }
   };
 
+  // --------------------------------------------------------------------------
+  // Previous-reports filtering (client-side)
+  // --------------------------------------------------------------------------
   const filteredPrev = prevReports.filter((r) => {
     const mType = prevType === 'all' || r.type === typeLabel[prevType];
-    const mBy = prevBy === 'all' || r.generatedBy === prevBy;
+    const mBy   = prevBy   === 'all' || r.generatedBy === prevBy;
     const recDate = new Date(r.date);
-    const now = new Date();
+    const now     = new Date();
     let mDate = true;
-    if (prevDate === '7d') mDate = (now.getTime() - recDate.getTime()) < 7 * 86400000;
-    else if (prevDate === '30d') mDate = (now.getTime() - recDate.getTime()) < 30 * 86400000;
-    else if (prevDate === '90d') mDate = (now.getTime() - recDate.getTime()) < 90 * 86400000;
+    if      (prevDate === '7d')  mDate = (now.getTime() - recDate.getTime()) < 7  * 86_400_000;
+    else if (prevDate === '30d') mDate = (now.getTime() - recDate.getTime()) < 30 * 86_400_000;
+    else if (prevDate === '90d') mDate = (now.getTime() - recDate.getTime()) < 90 * 86_400_000;
     return mType && mBy && mDate;
   });
 
   const uniqueGenerators = Array.from(new Set(prevReports.map((r) => r.generatedBy)));
 
+  // The label shown in the generated-report header for the officer filter
+  const selectedOfficerLabel =
+    selectedOfficerId !== undefined
+      ? (officers.find((o) => o.id === selectedOfficerId)?.name ?? `Officer #${selectedOfficerId}`)
+      : 'All Officers';
+
+  // --------------------------------------------------------------------------
+  // Render
+  // --------------------------------------------------------------------------
   return (
     <div className="space-y-6">
       <div>
@@ -199,7 +284,7 @@ export function ReportsDashboard() {
         <p className="text-sm text-navy-400 mt-0.5">Generate operational reports and review past reports.</p>
       </div>
 
-      {/* Generate Report card */}
+      {/* ── Generate Report card ─────────────────────────────────────────── */}
       <div className="card p-6">
         <div className="flex items-center gap-2 mb-1">
           <FileBarChart size={18} className="text-navy-700" />
@@ -213,7 +298,12 @@ export function ReportsDashboard() {
             <label className="label flex items-center gap-1.5"><FileText size={12} /> Report Type</label>
             <select
               value={reportType}
-              onChange={(e) => { setReportType(e.target.value as ReportType); setGenerated(false); setReportData(null); }}
+              onChange={(e) => {
+                setReportType(e.target.value as ReportType);
+                setGenerated(false);
+                setReportData(null);
+                setSelectedOfficerId(undefined);
+              }}
               className="input"
             >
               <option value="verification">Verification Summary</option>
@@ -223,16 +313,37 @@ export function ReportsDashboard() {
             </select>
           </div>
 
-          {/* Officer filter (only for officer activity) */}
+          {/* Officer dropdown — only for Officer Activity */}
           {reportType === 'officer' && (
             <div>
               <label className="label flex items-center gap-1.5"><Filter size={12} /> Officer</label>
-              <input
-                value={selectedOfficer}
-                onChange={(e) => { setSelectedOfficer(e.target.value); setGenerated(false); setReportData(null); }}
-                placeholder="Enter officer ID or name"
-                className="input"
-              />
+              {officersLoading ? (
+                <div className="input flex items-center gap-2 text-navy-400 text-sm">
+                  <Loader2 size={14} className="animate-spin" /> Loading officers…
+                </div>
+              ) : officersError ? (
+                <div className="input flex items-center gap-2 text-accent-red text-sm">
+                  <AlertCircle size={14} /> {officersError}
+                </div>
+              ) : (
+                <select
+                  value={selectedOfficerId ?? ''}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSelectedOfficerId(val === '' ? undefined : Number(val));
+                    setGenerated(false);
+                    setReportData(null);
+                  }}
+                  className="input"
+                >
+                  <option value="">All Officers</option>
+                  {officers.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.name}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
           )}
 
@@ -241,7 +352,11 @@ export function ReportsDashboard() {
             <label className="label flex items-center gap-1.5"><Calendar size={12} /> Date Range</label>
             <select
               value={dateRange}
-              onChange={(e) => { setDateRange(e.target.value as '7d' | '30d' | '90d' | 'ytd'); setGenerated(false); setReportData(null); }}
+              onChange={(e) => {
+                setDateRange(e.target.value as '7d' | '30d' | '90d' | 'ytd');
+                setGenerated(false);
+                setReportData(null);
+              }}
               className="input"
             >
               <option value="7d">Last 7 days</option>
@@ -260,28 +375,36 @@ export function ReportsDashboard() {
 
         <div className="mt-5 flex items-center gap-3">
           <button onClick={handleGenerate} disabled={generating} className="btn-primary disabled:opacity-60">
-            {generating ? <><Loader2 size={16} className="animate-spin" /> Generating...</> : <><FileBarChart size={16} /> Generate Report</>}
+            {generating
+              ? <><Loader2 size={16} className="animate-spin" /> Generating…</>
+              : <><FileBarChart size={16} /> Generate Report</>}
           </button>
           {generated && (
-            <button onClick={() => handleDownloadCSV()} className="btn-success">
+            <button onClick={handleDownloadCSV} className="btn-success">
               <Download size={16} /> Download CSV
             </button>
           )}
         </div>
       </div>
 
-      {/* Generated report output */}
+      {/* ── Generated report output ──────────────────────────────────────── */}
       {generated && reportData && (
         <div className="card p-6">
           <div className="flex items-center justify-between mb-5">
             <div>
               <div className="flex items-center gap-2">
                 <CheckCircle2 size={16} className="text-accent-green" />
-                <h3 className="text-sm font-semibold text-navy-800">{typeLabel[reportType]} — Generated</h3>
+                <h3 className="text-sm font-semibold text-navy-800">
+                  {typeLabel[reportType]} — Generated
+                </h3>
               </div>
               <p className="text-xs text-navy-400 mt-0.5">
-                {reportType === 'officer' && selectedOfficer ? `Officer: ${selectedOfficer} · ` : ''}
-                Range: {dateRange === '7d' ? 'Last 7 days' : dateRange === '30d' ? 'Last 30 days' : dateRange === '90d' ? 'Last 90 days' : 'Year to date'}
+                {reportType === 'officer' ? `Officer: ${selectedOfficerLabel} · ` : ''}
+                Range:{' '}
+                {dateRange === '7d'  ? 'Last 7 days'
+                : dateRange === '30d' ? 'Last 30 days'
+                : dateRange === '90d' ? 'Last 90 days'
+                : 'Year to date'}
               </p>
             </div>
             <span className="badge-verified"><CheckCircle2 size={12} /> Ready</span>
@@ -290,14 +413,14 @@ export function ReportsDashboard() {
           <ReportOutput reportType={reportType} data={reportData} />
 
           <div className="mt-5 pt-4 border-t border-navy-100 flex justify-end">
-            <button onClick={() => handleDownloadCSV()} className="btn-success">
+            <button onClick={handleDownloadCSV} className="btn-success">
               <Download size={16} /> Download CSV
             </button>
           </div>
         </div>
       )}
 
-      {/* Previous reports */}
+      {/* ── Previous reports ─────────────────────────────────────────────── */}
       <div className="card overflow-hidden">
         <div className="px-5 py-4 border-b border-navy-100 flex flex-col lg:flex-row gap-3 lg:items-center lg:justify-between">
           <h3 className="text-sm font-semibold text-navy-800">Previous Reports</h3>
@@ -345,7 +468,7 @@ export function ReportsDashboard() {
         <div className="overflow-x-auto">
           {prevLoading ? (
             <div className="flex items-center justify-center py-12 text-navy-400">
-              <Loader2 size={20} className="animate-spin mr-2" /> Loading...
+              <Loader2 size={20} className="animate-spin mr-2" /> Loading…
             </div>
           ) : prevError ? (
             <div className="flex items-center justify-center py-12 text-accent-red">
@@ -374,9 +497,14 @@ export function ReportsDashboard() {
                     <td className="px-5 py-3"><span className="badge-neutral">{r.type}</span></td>
                     <td className="px-5 py-3 text-navy-600">{r.generatedBy}</td>
                     <td className="px-5 py-3 text-navy-600 whitespace-nowrap">{r.date}</td>
-                    <td className="px-5 py-3"><span className="badge-verified"><CheckCircle2 size={12} /> {r.status}</span></td>
+                    <td className="px-5 py-3">
+                      <span className="badge-verified"><CheckCircle2 size={12} /> {r.status}</span>
+                    </td>
                     <td className="px-5 py-3 text-right">
-                      <button onClick={() => handleDownloadPrevious(r)} className="text-accent-blue hover:underline text-xs font-medium flex items-center gap-1 ml-auto">
+                      <button
+                        onClick={() => handleDownloadPrevious(r)}
+                        className="text-accent-blue hover:underline text-xs font-medium flex items-center gap-1 ml-auto"
+                      >
                         <Download size={13} /> Download
                       </button>
                     </td>
@@ -391,13 +519,16 @@ export function ReportsDashboard() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// ReportOutput — renders the visual summary for the currently generated report
+// ---------------------------------------------------------------------------
 function ReportOutput({ reportType, data }: { reportType: ReportType; data: GeneratedReport }) {
   if (reportType === 'verification') {
-    const summary = data.summary as NonNullable<VerificationSummaryResponse['summary']>;
+    const summary = (data as VerificationSummaryResponse).summary ?? { total: 0, verified: 0, pendingSupervisorReview: 0, rejected: 0 };
     const chartData = [
-      { label: 'Verified', value: summary.verified ?? 0, color: '#16a34a' },
-      { label: 'Pending', value: summary.pendingSupervisorReview ?? 0, color: '#d97706' },
-      { label: 'Rejected', value: summary.rejected ?? 0, color: '#dc2626' },
+      { label: 'Verified',  value: summary.verified               ?? 0, color: '#16a34a' },
+      { label: 'Pending',   value: summary.pendingSupervisorReview ?? 0, color: '#d97706' },
+      { label: 'Rejected',  value: summary.rejected               ?? 0, color: '#dc2626' },
     ];
     if (summary.total === 0) return <p className="text-sm text-navy-400">No data for this range.</p>;
     return (
@@ -407,9 +538,9 @@ function ReportOutput({ reportType, data }: { reportType: ReportType; data: Gene
           <h4 className="text-xs font-semibold text-navy-500 uppercase tracking-wide mb-3">Verification Summary</h4>
           <ChartLabels data={chartData} />
           <div className="mt-4 grid grid-cols-3 gap-3 text-center text-xs">
-            <StatPill label="Total" value={summary.total} />
+            <StatPill label="Total"    value={summary.total} />
             <StatPill label="Verified" value={summary.verified ?? 0} />
-            <StatPill label="Pending" value={summary.pendingSupervisorReview ?? 0} />
+            <StatPill label="Pending"  value={summary.pendingSupervisorReview ?? 0} />
           </div>
         </div>
       </div>
@@ -417,7 +548,7 @@ function ReportOutput({ reportType, data }: { reportType: ReportType; data: Gene
   }
 
   if (reportType === 'override') {
-    const summary = data.summary as NonNullable<OverrideSummaryResponse['summary']>;
+    const summary = (data as OverrideSummaryResponse).summary ?? { total: 0, approvedToVerified: 0, approvedToRejected: 0 };
     const chartData = [
       { label: 'Verified', value: summary.approvedToVerified ?? 0, color: '#16a34a' },
       { label: 'Rejected', value: summary.approvedToRejected ?? 0, color: '#dc2626' },
@@ -430,7 +561,7 @@ function ReportOutput({ reportType, data }: { reportType: ReportType; data: Gene
           <h4 className="text-xs font-semibold text-navy-500 uppercase tracking-wide mb-3">Override Summary</h4>
           <ChartLabels data={chartData} />
           <div className="mt-4 grid grid-cols-3 gap-3 text-center text-xs">
-            <StatPill label="Total" value={summary.total} />
+            <StatPill label="Total"    value={summary.total} />
             <StatPill label="Verified" value={summary.approvedToVerified ?? 0} />
             <StatPill label="Rejected" value={summary.approvedToRejected ?? 0} />
           </div>
@@ -440,63 +571,92 @@ function ReportOutput({ reportType, data }: { reportType: ReportType; data: Gene
   }
 
   if (reportType === 'manual_review') {
-    const summary = data.summary as ManualReviewSummaryResponse['summary'];
+    const summary = (data as ManualReviewSummaryResponse).summary ?? [];
     if (summary.length === 0) return <p className="text-sm text-navy-400">No data for this range.</p>;
+
+    const approved          = summary.filter((r) => r.decision === 'APPROVED' || r.decision === 'APPROVED_OVERRIDE').length;
+    const rejected          = summary.filter((r) => r.decision === 'REJECTED').length;
+    const reEnrollment      = summary.filter((r) => r.decision === 'RE_ENROLLMENT_REQUESTED').length;
+
+    // Reason breakdown
+    const fingerprintInjury = summary.filter((r) => r.manualReviewType === 'FINGERPRINT_INJURY').length;
+    const irisInjury        = summary.filter((r) => r.manualReviewType === 'IRIS_INJURY').length;
+    const unavailable       = summary.filter((r) => r.manualReviewType === 'BIOMETRIC_UNAVAILABLE').length;
+
+    const decisionChart = [
+      { label: 'Approved',          value: approved,     color: '#16a34a' },
+      { label: 'Rejected',          value: rejected,     color: '#dc2626' },
+      { label: 'Re-Enrollment',     value: reEnrollment, color: '#d97706' },
+    ];
+    const reasonChart = [
+      { label: 'Fingerprint Injury',    value: fingerprintInjury, color: '#6366f1' },
+      { label: 'Iris Injury',           value: irisInjury,        color: '#0ea5e9' },
+      { label: 'Biometric Unavailable', value: unavailable,       color: '#64748b' },
+    ];
+
     return (
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-navy-50">
-            <tr>
-              <th className="table-header px-4 py-2 text-left">Traveler</th>
-              <th className="table-header px-4 py-2 text-left">Passport Number</th>
-              <th className="table-header px-4 py-2 text-left">Review Type</th>
-              <th className="table-header px-4 py-2 text-left">Officer</th>
-              <th className="table-header px-4 py-2 text-left">Supervisor</th>
-              <th className="table-header px-4 py-2 text-left">Decision</th>
-              <th className="table-header px-4 py-2 text-left">Submission Date</th>
-              <th className="table-header px-4 py-2 text-left">Review Date</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-navy-100">
-            {summary.map((item, idx) => (
-              <tr key={idx} className="hover:bg-navy-50/60 transition-colors">
-                <td className="px-4 py-2.5 font-medium text-navy-800">{item.travelerName}</td>
-                <td className="px-4 py-2.5 font-mono text-xs text-navy-600">{item.passportNo}</td>
-                <td className="px-4 py-2.5 text-navy-600">{item.manualReviewType.replace(/_/g, ' ')}</td>
-                <td className="px-4 py-2.5 text-navy-600">{item.officer}</td>
-                <td className="px-4 py-2.5 text-navy-600">{item.supervisor}</td>
-                <td className="px-4 py-2.5">
-                  <span className={
-                    item.decision === 'APPROVED' || item.decision === 'APPROVED_OVERRIDE'
-                      ? 'badge-verified'
-                      : item.decision === 'REJECTED'
-                      ? 'badge-rejected'
-                      : 'badge-pending'
-                  }>
-                    {item.decision.replace(/_/g, ' ')}
-                  </span>
-                </td>
-                <td className="px-4 py-2.5 text-navy-600 whitespace-nowrap">{new Date(item.submissionDate).toLocaleDateString()}</td>
-                <td className="px-4 py-2.5 text-navy-600 whitespace-nowrap">{new Date(item.reviewDate).toLocaleDateString()}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="space-y-6">
+        {/* Decision breakdown */}
+        <div>
+          <h4 className="text-xs font-semibold text-navy-500 uppercase tracking-wide mb-4">Decision Breakdown</h4>
+          <div className="grid grid-cols-1 lg:grid-cols-[180px_1fr] gap-6 items-center">
+            <DonutChart data={decisionChart} size={180} />
+            <div>
+              <ChartLabels data={decisionChart} />
+              <div className="mt-4 grid grid-cols-4 gap-3 text-center text-xs">
+                <StatPill label="Total"        value={summary.length} />
+                <StatPill label="Approved"     value={approved} />
+                <StatPill label="Rejected"     value={rejected} />
+                <StatPill label="Re-Enroll"    value={reEnrollment} />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Reason breakdown */}
+        <div className="border-t border-navy-100 pt-5">
+          <h4 className="text-xs font-semibold text-navy-500 uppercase tracking-wide mb-4">Review Reason Breakdown</h4>
+          <div className="grid grid-cols-1 lg:grid-cols-[180px_1fr] gap-6 items-center">
+            <DonutChart data={reasonChart} size={180} />
+            <div>
+              <ChartLabels data={reasonChart} />
+              <div className="mt-4 grid grid-cols-3 gap-3 text-center text-xs">
+                <StatPill label="Fingerprint Injury"    value={fingerprintInjury} />
+                <StatPill label="Iris Injury"           value={irisInjury} />
+                <StatPill label="Biometric Unavailable" value={unavailable} />
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
 
-  const summary = data.summary as OfficerActivitySummaryResponse['summary'];
+  // Officer activity
+  const summary = (data as OfficerActivitySummaryResponse).summary ?? [];
   if (summary.length === 0) return <p className="text-sm text-navy-400">No data for this range.</p>;
-  const chartData = summary.map((entry) => ({
+
+  const totalVerifications = summary.reduce((s, o) => s + o.verifications, 0);
+  // Assign a distinct color per officer from a fixed palette
+  const palette = ['#102a43', '#16a34a', '#0ea5e9', '#d97706', '#6366f1', '#dc2626', '#64748b', '#0f766e'];
+  const officerChart = summary.map((entry, i) => ({
     label: entry.officerName,
     value: entry.verifications,
+    color: palette[i % palette.length],
   }));
+
   return (
-    <div>
-      <h4 className="text-xs font-semibold text-navy-500 uppercase tracking-wide mb-3">Officer Activity</h4>
-      <BarChart data={chartData} />
-      <AxisLabels labels={chartData.map((d) => d.label)} />
+    <div className="grid grid-cols-1 lg:grid-cols-[180px_1fr] gap-6 items-center">
+      <DonutChart data={officerChart} size={180} />
+      <div>
+        <h4 className="text-xs font-semibold text-navy-500 uppercase tracking-wide mb-3">Officer Activity</h4>
+        <ChartLabels data={officerChart} />
+        <div className="mt-4 grid grid-cols-3 gap-3 text-center text-xs">
+          <StatPill label="Total Verifications" value={totalVerifications} />
+          <StatPill label="Officers Active"     value={summary.length} />
+          <StatPill label="Avg per Officer"     value={summary.length > 0 ? Math.round(totalVerifications / summary.length) : 0} />
+        </div>
+      </div>
     </div>
   );
 }

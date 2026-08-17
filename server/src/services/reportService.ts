@@ -6,12 +6,40 @@ interface DateRange {
   generatedBy: number;
 }
 
+interface OfficerDateRange extends DateRange {
+  /** When provided, restrict results to this officer only. */
+  officerId?: number;
+}
+
+/**
+ * Convert a YYYY-MM-DD string (or Date) to the start of that day in UTC.
+ *   "2025-08-17" → 2025-08-17T00:00:00.000Z
+ */
+function toStartOfDay(value: string | Date): Date {
+  const d = typeof value === "string" ? value : value.toISOString().slice(0, 10);
+  // Appending "T00:00:00.000Z" forces UTC midnight regardless of server timezone
+  return new Date(`${typeof value === "string" ? value.slice(0, 10) : d}T00:00:00.000Z`);
+}
+
+/**
+ * Convert a YYYY-MM-DD string (or Date) to the END of that day in UTC.
+ *   "2025-08-17" → 2025-08-17T23:59:59.999Z
+ *
+ * This is the fix for the primary "no data" bug: previously `new Date("2025-08-17")`
+ * produced midnight UTC, so any record created after 00:00:00 on the end date was
+ * excluded from the query.
+ */
+function toEndOfDay(value: string | Date): Date {
+  const d = typeof value === "string" ? value.slice(0, 10) : value.toISOString().slice(0, 10);
+  return new Date(`${d}T23:59:59.999Z`);
+}
+
 /**
  * Verification summary: counts of each decision outcome within the range.
  */
 export async function generateVerificationSummary({ startDate, endDate, generatedBy }: DateRange) {
-  const start = new Date(startDate);
-  const end = new Date(endDate);
+  const start = toStartOfDay(startDate);
+  const end   = toEndOfDay(endDate);
 
   const logs = await prisma.verificationLog.findMany({
     where: { timestamp: { gte: start, lte: end } },
@@ -26,12 +54,7 @@ export async function generateVerificationSummary({ startDate, endDate, generate
   };
 
   const report = await prisma.report.create({
-    data: {
-      reportType: "VERIFICATION_SUMMARY",
-      startDate: start,
-      endDate: end,
-      generatedBy,
-    },
+    data: { reportType: "VERIFICATION_SUMMARY", startDate: start, endDate: end, generatedBy },
   });
 
   return { report, summary };
@@ -42,8 +65,8 @@ export async function generateVerificationSummary({ startDate, endDate, generate
  * grouped by the decision the supervisor issued.
  */
 export async function generateOverrideSummary({ startDate, endDate, generatedBy }: DateRange) {
-  const start = new Date(startDate);
-  const end = new Date(endDate);
+  const start = toStartOfDay(startDate);
+  const end   = toEndOfDay(endDate);
 
   const overrides = await prisma.overrideRecord.findMany({
     where: { timestamp: { gte: start, lte: end } },
@@ -57,12 +80,7 @@ export async function generateOverrideSummary({ startDate, endDate, generatedBy 
   };
 
   const report = await prisma.report.create({
-    data: {
-      reportType: "OVERRIDE_SUMMARY",
-      startDate: start,
-      endDate: end,
-      generatedBy,
-    },
+    data: { reportType: "OVERRIDE_SUMMARY", startDate: start, endDate: end, generatedBy },
   });
 
   return { report, summary };
@@ -70,13 +88,27 @@ export async function generateOverrideSummary({ startDate, endDate, generatedBy 
 
 /**
  * Officer activity: verification attempts per officer within the range.
+ * When officerId is supplied only that officer's records are returned.
  */
-export async function generateOfficerActivity({ startDate, endDate, generatedBy }: DateRange) {
-  const start = new Date(startDate);
-  const end = new Date(endDate);
+export async function generateOfficerActivity({
+  startDate,
+  endDate,
+  generatedBy,
+  officerId,
+}: OfficerDateRange) {
+  const start = toStartOfDay(startDate);
+  const end   = toEndOfDay(endDate);
+
+  const whereClause: {
+    timestamp: { gte: Date; lte: Date };
+    officerId?: number;
+  } = {
+    timestamp: { gte: start, lte: end },
+    ...(officerId !== undefined ? { officerId } : {}),
+  };
 
   const logs = await prisma.verificationLog.findMany({
-    where: { timestamp: { gte: start, lte: end } },
+    where: whereClause,
     include: { officer: { select: { id: true, name: true } } },
   });
 
@@ -92,15 +124,50 @@ export async function generateOfficerActivity({ startDate, endDate, generatedBy 
   }
 
   const report = await prisma.report.create({
-    data: {
-      reportType: "OFFICER_ACTIVITY",
-      startDate: start,
-      endDate: end,
-      generatedBy,
-    },
+    data: { reportType: "OFFICER_ACTIVITY", startDate: start, endDate: end, generatedBy },
   });
 
   return { report, summary: Array.from(byOfficer.values()) };
+}
+
+/**
+ * Manual review summary: completed reviews (non-pending) within the range.
+ * Filters on updatedAt so the range reflects when reviews were resolved.
+ */
+export async function generateManualReviewSummary({ startDate, endDate, generatedBy }: DateRange) {
+  const start = toStartOfDay(startDate);
+  const end   = toEndOfDay(endDate);
+
+  const requests = await prisma.manualReviewRequest.findMany({
+    where: {
+      status: { in: ["APPROVED", "REJECTED", "RE_ENROLLMENT_REQUESTED"] },
+      updatedAt: { gte: start, lte: end },
+    },
+    include: {
+      traveler:   { select: { fullName: true, fan: true } },
+      officer:    { select: { name: true } },
+      supervisor: { select: { name: true } },
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+
+  const summary = requests.map((r) => ({
+    id: r.id,
+    travelerName: r.traveler.fullName,
+    passportNo:   r.traveler.fan,
+    manualReviewType: r.reason,
+    officer:    r.officer.name,
+    supervisor: r.supervisor?.name ?? "System",
+    decision:   r.status,
+    submissionDate: r.createdAt.toISOString(),
+    reviewDate:     r.updatedAt.toISOString(),
+  }));
+
+  const report = await prisma.report.create({
+    data: { reportType: "MANUAL_REVIEW_SUMMARY", startDate: start, endDate: end, generatedBy },
+  });
+
+  return { report, summary };
 }
 
 /** Lists all previously generated report metadata records. */
@@ -111,43 +178,11 @@ export async function listReports() {
   });
 }
 
-export async function generateManualReviewSummary({ startDate, endDate, generatedBy }: DateRange) {
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-
-  const requests = await prisma.manualReviewRequest.findMany({
-    where: {
-      status: { in: ["APPROVED", "REJECTED", "RE_ENROLLMENT_REQUESTED"] },
-      updatedAt: { gte: start, lte: end },
-    },
-    include: {
-      traveler: { select: { fullName: true, fan: true } },
-      officer: { select: { name: true } },
-      supervisor: { select: { name: true } },
-    },
-    orderBy: { updatedAt: "desc" },
+/** Returns all users whose role is OFFICER, for the officer-filter dropdown. */
+export async function listOfficers() {
+  return prisma.user.findMany({
+    where:   { role: "OFFICER" },
+    select:  { id: true, name: true },
+    orderBy: { name: "asc" },
   });
-
-  const summary = requests.map((r) => ({
-    id: r.id,
-    travelerName: r.traveler.fullName,
-    passportNo: r.traveler.fan,
-    manualReviewType: r.reason,
-    officer: r.officer.name,
-    supervisor: r.supervisor?.name ?? "System",
-    decision: r.status,
-    submissionDate: r.createdAt.toISOString(),
-    reviewDate: r.updatedAt.toISOString(),
-  }));
-
-  const report = await prisma.report.create({
-    data: {
-      reportType: "MANUAL_REVIEW_SUMMARY",
-      startDate: start,
-      endDate: end,
-      generatedBy,
-    },
-  });
-
-  return { report, summary };
 }

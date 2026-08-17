@@ -125,6 +125,10 @@ export interface ReportRecord {
   generatedBy: string;
   date: string;
   status: string;
+  /** ISO date string of the report's original start date (stored by the backend). */
+  startDate?: string;
+  /** ISO date string of the report's original end date (stored by the backend). */
+  endDate?: string;
 }
 
 export interface ReportSummary {
