@@ -49,8 +49,8 @@ async function fixBiometrics() {
   let updatedCount = 0;
 
   for (const record of biometrics) {
-    const isFpRaw = isRawImage(record.fingerprintTemplate);
-    const isIrisRaw = isRawImage(record.irisTemplate);
+    const isFpRaw = isRawImage(Buffer.from(record.fingerprintTemplate));
+    const isIrisRaw = isRawImage(Buffer.from(record.irisTemplate));
 
     if (isFpRaw || isIrisRaw) {
       console.log(`\nTraveler ID ${record.travelerId}: Raw image detected.`);
@@ -60,7 +60,8 @@ async function fixBiometrics() {
       if (isFpRaw) {
         console.log(` -> Extracting template for fingerprint (raw size: ${record.fingerprintTemplate.length} bytes)...`);
         try {
-          fpBuffer = await extractTemplate("fingerprint", record.fingerprintTemplate);
+          const res = await extractTemplate("fingerprint", Buffer.from(record.fingerprintTemplate));
+          fpBuffer = Buffer.from(res) as any;
           console.log(`    Successfully extracted fingerprint template (${fpBuffer.length} bytes).`);
         } catch (err: any) {
           console.error(`    [ERROR] Failed to extract fingerprint template: ${err?.message}`);
@@ -70,7 +71,8 @@ async function fixBiometrics() {
       if (isIrisRaw) {
         console.log(` -> Extracting template for iris (raw size: ${record.irisTemplate.length} bytes)...`);
         try {
-          irisBuffer = await extractTemplate("iris", record.irisTemplate);
+          const res = await extractTemplate("iris", Buffer.from(record.irisTemplate));
+          irisBuffer = Buffer.from(res) as any;
           console.log(`    Successfully extracted iris template (${irisBuffer.length} bytes).`);
         } catch (err: any) {
           console.error(`    [ERROR] Failed to extract iris template: ${err?.message}`);

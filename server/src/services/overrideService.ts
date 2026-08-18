@@ -77,5 +77,21 @@ export async function decideOverride(input: DecideOverrideInput) {
     data: { finalDecision: decision },
   });
 
+  const linkedReview = await prisma.manualReviewRequest.findFirst({
+    where: { verificationId }
+  });
+
+  if (linkedReview) {
+    await prisma.manualReviewRequest.update({
+      where: { id: linkedReview.id },
+      data: {
+        supervisorId,
+        decision: decision === "VERIFIED" ? "APPROVED_OVERRIDE" : "REJECTED",
+        supervisorNotes: reason,
+        status: decision === "VERIFIED" ? "APPROVED" : "REJECTED"
+      }
+    });
+  }
+
   return { overrideRecord, verificationLog: updatedLog };
 }

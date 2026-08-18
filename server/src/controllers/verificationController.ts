@@ -1,8 +1,9 @@
 import { Request, Response, NextFunction } from "express";
 import multer from "multer";
-import { runVerification, getVerificationsByOfficer } from "../services/verificationService";
+import { runVerification, getVerificationsByOfficer, getDashboardStats } from "../services/verificationService";
 import { createAuditLog, getClientIp } from "../services/auditService";
 import { AuditLevel } from "../../generated/prisma";
+import { checkBiometricQuality } from "../services/aiClient";
 import {
   isValidFingerprintFormat,
   isValidIrisFormat,
@@ -25,7 +26,7 @@ export const verificationUpload = upload.fields([
  */
 export async function verify(req: Request, res: Response, next: NextFunction) {
   try {
-    const { travelerId, fan, captureMode = "SIMULATION", fingerprintImage, irisImage, fingerprintData, irisData, threshold } = req.body;
+    const { travelerId, fan, captureMode = "SIMULATION", fingerprintImage, irisImage, fingerprintData, irisData, threshold, direction, checkpointId } = req.body;
     const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
     const fingerprintBuffer = files?.fingerprintImage?.[0]?.buffer;
     const irisBuffer = files?.irisImage?.[0]?.buffer;
@@ -89,6 +90,8 @@ export async function verify(req: Request, res: Response, next: NextFunction) {
       irisImage: irisBuffer,
       fingerprintData: fingerprintSource,
       irisData: irisSource,
+      direction: direction ? String(direction) as any : undefined,
+      checkpointId: checkpointId ? Number(checkpointId) : undefined,
     });
 
     await createAuditLog(
@@ -132,6 +135,47 @@ export async function myActivity(req: Request, res: Response, next: NextFunction
   try {
     const logs = await getVerificationsByOfficer(req.user!.userId);
     return res.status(200).json({ verificationLogs: logs });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * GET /api/verification/stats
+ * Dashboard statistics from PostgreSQL.
+ */
+export async function stats(req: Request, res: Response, next: NextFunction) {
+  try {
+    const data = await getDashboardStats();
+    return res.status(200).json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /api/verification/quality
+ * Evaluates the capture quality of a fingerprint or iris scan.
+ */
+export async function qualityCheck(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { biometricType, image, imageData } = req.body;
+    const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
+    
+    const fileBuffer = files?.[biometricType === "iris" ? "irisImage" : "fingerprintImage"]?.[0]?.buffer;
+    const sourceData = fileBuffer || image || imageData;
+
+    if (!sourceData) {
+      return res.status(400).json({ message: "Image data is required" });
+    }
+
+    const result = await checkBiometricQuality({
+      biometricType: biometricType as any,
+      imageBuffer: Buffer.isBuffer(sourceData) ? sourceData : undefined,
+      imageData: typeof sourceData === "string" ? sourceData : undefined,
+    });
+
+    return res.status(200).json(result);
   } catch (err) {
     next(err);
   }

@@ -1,8 +1,9 @@
-import type { ReactNode } from 'react';
+import { ReactNode, useState, useEffect } from 'react';
 import { SystemMark } from './Logo';
+import api from '../services/api';
 import {
   LayoutDashboard, Fingerprint, History, LogOut, Users, ScrollText, Shield,
-  Settings, ClipboardCheck, FileBarChart, ChevronDown, UserPlus, Gavel,
+  Settings, ClipboardCheck, FileBarChart, ChevronDown, UserPlus, Gavel, Bell,
 } from 'lucide-react';
 import type { Role } from '../types';
 
@@ -62,6 +63,44 @@ interface ShellProps {
 
 export function AppShell({ role, userName, active, onNavigate, onLogout, children }: ShellProps) {
   const items = navByRole[role];
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [notifOpen, setNotifOpen] = useState(false);
+
+  const fetchNotifications = async () => {
+    try {
+      const res = await api.get('/notifications');
+      if (res.data?.notifications) {
+        setNotifications(res.data.notifications);
+      }
+    } catch (err) {
+      console.error('Failed to fetch notifications:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (role !== 'supervisor') return;
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 10000);
+    return () => clearInterval(interval);
+  }, [role]);
+
+  const handleMarkRead = async (id: number) => {
+    try {
+      await api.patch(`/notifications/${id}/read`);
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    try {
+      await api.patch('/notifications/read-all');
+      setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+    } catch (err) {
+      console.error(err);
+    }
+  };
   return (
     <div className="flex h-screen overflow-hidden bg-navy-50">
       {/* Sidebar */}
@@ -112,15 +151,83 @@ export function AppShell({ role, userName, active, onNavigate, onLogout, childre
             </h1>
             <span className="badge-neutral ml-2">{roleLabel[role]}</span>
           </div>
-          <div className="flex items-center gap-2.5 pl-2 border-l border-navy-100">
-            <div className="h-9 w-9 rounded-full bg-navy-700 text-white flex items-center justify-center text-xs font-semibold">
-              {userName.split(' ').slice(-1)[0].slice(0, 2).toUpperCase()}
+          <div className="flex items-center gap-4">
+            {role === 'supervisor' && (
+              <div className="relative">
+                <button
+                  onClick={() => setNotifOpen(!notifOpen)}
+                  className="relative p-2 text-navy-400 hover:text-navy-600 rounded-lg hover:bg-navy-50"
+                >
+                  <Bell size={20} />
+                  {notifications.filter(n => !n.isRead).length > 0 && (
+                    <span className="absolute top-1.5 right-1.5 h-4 w-4 rounded-full bg-accent-red text-[9px] font-bold text-white flex items-center justify-center">
+                      {notifications.filter(n => !n.isRead).length}
+                    </span>
+                  )}
+                </button>
+
+                {notifOpen && (
+                  <div className="absolute right-0 mt-2 w-80 rounded-xl bg-white border border-navy-100 shadow-card py-2 z-50 max-h-96 overflow-y-auto">
+                    <div className="flex items-center justify-between px-4 pb-2 border-b border-navy-50">
+                      <span className="text-xs font-bold text-navy-800">Notifications</span>
+                      {notifications.filter(n => !n.isRead).length > 0 && (
+                        <button
+                          onClick={handleMarkAllRead}
+                          className="text-[10px] font-semibold text-accent-blue hover:text-accent-blue/80"
+                        >
+                          Mark all as read
+                        </button>
+                      )}
+                    </div>
+                    <div className="divide-y divide-navy-50">
+                      {notifications.length === 0 ? (
+                        <div className="px-4 py-6 text-center text-xs text-navy-400">No notifications</div>
+                      ) : (
+                        notifications.map((n) => (
+                          <div
+                            key={n.id}
+                            className={`p-3 text-left transition-colors hover:bg-navy-50/50 flex gap-2.5 items-start ${
+                              !n.isRead ? 'bg-navy-50/20' : ''
+                            }`}
+                          >
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between gap-1.5">
+                                <span className={`text-xs font-bold ${!n.isRead ? 'text-navy-800' : 'text-navy-500'}`}>
+                                  {n.title}
+                                </span>
+                                {!n.isRead && (
+                                  <button
+                                    onClick={() => handleMarkRead(n.id)}
+                                    className="text-[9px] font-bold text-accent-blue hover:underline shrink-0"
+                                  >
+                                    Mark read
+                                  </button>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-navy-500 mt-0.5 leading-tight">{n.message}</p>
+                              <span className="text-[9px] text-navy-400 mt-1 block">
+                                {new Date(n.createdAt).toLocaleTimeString()}
+                              </span>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex items-center gap-2.5 pl-2 border-l border-navy-100">
+              <div className="h-9 w-9 rounded-full bg-navy-700 text-white flex items-center justify-center text-xs font-semibold">
+                {userName.split(' ').slice(-1)[0].slice(0, 2).toUpperCase()}
+              </div>
+              <div className="hidden md:block leading-tight">
+                <div className="text-sm font-semibold text-navy-800">{userName}</div>
+                <div className="text-[11px] text-navy-400">{roleLabel[role]}</div>
+              </div>
+              <ChevronDown size={14} className="text-navy-300 hidden md:block" />
             </div>
-            <div className="hidden md:block leading-tight">
-              <div className="text-sm font-semibold text-navy-800">{userName}</div>
-              <div className="text-[11px] text-navy-400">{roleLabel[role]}</div>
-            </div>
-            <ChevronDown size={14} className="text-navy-300 hidden md:block" />
           </div>
         </header>
 

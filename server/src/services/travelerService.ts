@@ -12,6 +12,8 @@ export async function findTravelerByFan(fan: string) {
       nationality: true,
       photo: true,
       enrollmentStatus: true,
+      alertStatus: true,
+      alertReason: true,
     },
   });
 }

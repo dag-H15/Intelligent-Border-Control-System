@@ -64,6 +64,28 @@ def enroll():
             "error": str(e)
         }), 500
 
+from services.quality import check_biometric_quality
+
+@app.route("/quality", methods=["POST"])
+@app.route("/api/quality", methods=["POST"])
+def quality():
+    try:
+        data = _read_json_payload()
+        payload = _read_image_payload(data)
+        biometric_type = _read_biometric_type(data)
+
+        if not payload:
+            return jsonify({"message": "An image payload is required for quality check."}), 400
+
+        result = check_biometric_quality(payload, biometric_type)
+        return jsonify(result), 200
+    except Exception as e:
+        app.logger.error(f"Error in quality check: {e}")
+        return jsonify({
+            "message": "An error occurred while checking biometric quality",
+            "error": str(e)
+        }), 500
+
 @app.route("/verify", methods=["POST"])
 @app.route("/api/verify", methods=["POST"])
 def verify():

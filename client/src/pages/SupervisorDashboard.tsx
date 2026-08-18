@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { overrideService, type PendingCase } from '../services/overrideService';
+import { verificationService } from '../services/verificationService';
 import { StatusBadge } from '../components/StatusBadge';
 import { ClipboardCheck, Gavel, FileBarChart, XCircle, ArrowUpRight, Loader2, AlertCircle } from 'lucide-react';
 
@@ -9,29 +10,37 @@ interface Props {
 
 export function SupervisorDashboard({ onGoPending }: Props) {
   const [pendingCases, setPendingCases] = useState<PendingCase[]>([]);
-  const [overrideActivity, setOverrideActivity] = useState<{ timestamp: string; newDecision: string }[]>([]);
+  const [stats, setStats] = useState({
+    todayCrossings: 0,
+    todayEntries: 0,
+    todayExits: 0,
+    todayAccepted: 0,
+    todayRejected: 0,
+    todayReviews: 0,
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
     Promise.all([
       overrideService.getPending().catch(() => []),
-      overrideService.getMyActivity().catch(() => []),
-    ]).then(([pending, activity]) => {
+      verificationService.getStats().catch(() => ({
+        todayCrossings: 0,
+        todayEntries: 0,
+        todayExits: 0,
+        todayAccepted: 0,
+        todayRejected: 0,
+        todayReviews: 0,
+      })),
+    ]).then(([pending, dbStats]) => {
       setPendingCases(pending);
-      setOverrideActivity((activity as { timestamp: string; newDecision: string }[]).filter((record) => new Date(record.timestamp) >= startOfToday));
+      setStats(dbStats);
       setLoading(false);
     }).catch(() => {
       setError('Failed to load dashboard data.');
       setLoading(false);
     });
   }, []);
-
-  const manualReviewsToday = overrideActivity.length;
-  const approvedToday = overrideActivity.filter((record) => record.newDecision === 'VERIFIED').length;
-  const rejectedToday = overrideActivity.filter((record) => record.newDecision === 'REJECTED').length;
 
   return (
     <div className="space-y-6">
@@ -46,11 +55,13 @@ export function SupervisorDashboard({ onGoPending }: Props) {
       </div>
 
       {/* Stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
         <SupCard label="Pending Reviews" value={pendingCases.length} icon={ClipboardCheck} tone="amber" />
-        <SupCard label="Manual Reviews Today" value={manualReviewsToday} icon={Gavel} tone="navy" />
-        <SupCard label="Approved Today" value={approvedToday} icon={FileBarChart} tone="green" />
-        <SupCard label="Rejected Today" value={rejectedToday} icon={XCircle} tone="red" />
+        <SupCard label="Today Crossings" value={stats.todayCrossings} icon={Gavel} tone="navy" />
+        <SupCard label="Entries" value={stats.todayEntries} icon={FileBarChart} tone="green" />
+        <SupCard label="Exits" value={stats.todayExits} icon={FileBarChart} tone="navy" />
+        <SupCard label="Accepted" value={stats.todayAccepted} icon={FileBarChart} tone="green" />
+        <SupCard label="Rejected" value={stats.todayRejected} icon={XCircle} tone="red" />
       </div>
 
       {/* Pending queue */}

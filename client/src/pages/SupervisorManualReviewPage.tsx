@@ -337,30 +337,48 @@ export function SupervisorManualReviewPage() {
                 </div>
 
                 {/* Attachments & Scores */}
-                <div className="card p-5 lg:col-span-4">
-                  <h3 className="text-sm font-semibold text-navy-800 mb-4 font-sans">Supporting Documents</h3>
-                  
-                  <div className="space-y-4">
+                <div className="card p-5 lg:col-span-4 space-y-6">
+                  {c.verification && (
                     <div>
-                      <h4 className="text-xs font-semibold uppercase tracking-wide text-navy-400 mb-2">Uploaded Attachments</h4>
-                      {attachments.length === 0 ? (
-                        <div className="text-sm text-navy-400">No attachments uploaded.</div>
-                      ) : (
-                        <div className="space-y-2">
-                          {attachments.map((attachment, index) => (
-                            <div key={`${attachment.originalName}-${index}`} className="flex items-center justify-between rounded-lg border border-navy-100 px-3 py-2 text-sm">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <Paperclip size={14} className="text-navy-400 shrink-0" />
-                                <span className="truncate text-navy-700">{attachment.originalName}</span>
-                              </div>
-                              <button onClick={() => downloadAttachment(attachment)} className="text-xs text-accent-blue flex items-center gap-1">
-                                <Download size={12} /> Download
-                              </button>
-                            </div>
-                          ))}
+                      <h3 className="text-sm font-semibold text-navy-800 mb-3">AI Biometric Match Scores</h3>
+                      <div className="space-y-2.5 bg-navy-50/50 rounded-xl p-3.5 border border-navy-100">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-navy-500 uppercase tracking-wider font-semibold">Fingerprint Score</span>
+                          <span className="font-bold text-navy-800">{c.verification.fingerprintScore}%</span>
                         </div>
-                      )}
+                        <div className="flex justify-between text-xs">
+                          <span className="text-navy-500 uppercase tracking-wider font-semibold">Iris Score</span>
+                          <span className="font-bold text-navy-800">{c.verification.irisScore}%</span>
+                        </div>
+                        <div className="h-px bg-navy-200 my-1" />
+                        <div className="flex justify-between text-xs">
+                          <span className="text-navy-800 font-bold uppercase tracking-wider">Overall Score</span>
+                          <span className="font-bold text-accent-amber">{c.verification.finalScore}%</span>
+                        </div>
+                      </div>
                     </div>
+                  )}
+
+                  <div>
+                    <h3 className="text-sm font-semibold text-navy-800 mb-3 font-sans">Supporting Documents</h3>
+                    <h4 className="text-xs font-semibold uppercase tracking-wide text-navy-400 mb-2">Uploaded Attachments</h4>
+                    {attachments.length === 0 ? (
+                      <div className="text-sm text-navy-400">No attachments uploaded.</div>
+                    ) : (
+                      <div className="space-y-2">
+                        {attachments.map((attachment, index) => (
+                          <div key={`${attachment.originalName}-${index}`} className="flex items-center justify-between rounded-lg border border-navy-100 px-3 py-2 text-sm">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <Paperclip size={14} className="text-navy-400 shrink-0" />
+                              <span className="truncate text-navy-700">{attachment.originalName}</span>
+                            </div>
+                            <button onClick={() => downloadAttachment(attachment)} className="text-xs text-accent-blue flex items-center gap-1">
+                              <Download size={12} /> Download
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
 

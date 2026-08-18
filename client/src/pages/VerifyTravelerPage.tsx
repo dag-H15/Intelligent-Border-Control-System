@@ -1,12 +1,13 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { verificationService } from '../services/verificationService';
 import { travelerService } from '../services/travelerService';
 import { manualReviewService } from '../services/manualReviewService';
 import { scannerService } from '../services/scannerService';
 import type { Traveler, VerificationResult } from '../types';
+import api from '../services/api';
 import {
   Search, Fingerprint, ScanEye, Upload, CheckCircle2, XCircle, Clock, ShieldCheck,
-  User, Globe, Calendar, FileText, AlertCircle, Loader2, RotateCcw, Cpu, ArrowRight, FileUp,
+  User, Globe, Calendar, FileText, AlertCircle, Loader2, RotateCcw, Cpu, ArrowRight, FileUp, ShieldAlert, Paperclip,
 } from 'lucide-react';
 
 const decisionThresholds = {
@@ -41,6 +42,28 @@ export function VerifyTravelerPage() {
   const fpInputRef = useRef<HTMLInputElement>(null);
   const irisInputRef = useRef<HTMLInputElement>(null);
 
+  const [checkpoints, setCheckpoints] = useState<{ id: number; name: string }[]>([]);
+  const [selectedCheckpoint, setSelectedCheckpoint] = useState<string>('');
+  const [direction, setDirection] = useState<'ENTRY' | 'EXIT'>('ENTRY');
+  const [fpQuality, setFpQuality] = useState<{ score: number; acceptable: boolean } | null>(null);
+  const [irisQuality, setIrisQuality] = useState<{ score: number; acceptable: boolean } | null>(null);
+  const [fpAttempts, setFpAttempts] = useState(0);
+  const [irisAttempts, setIrisAttempts] = useState(0);
+  const [qualityChecking, setQualityChecking] = useState(false);
+
+  useEffect(() => {
+    api.get('/checkpoints')
+      .then((res) => {
+        if (res.data?.checkpoints) {
+          setCheckpoints(res.data.checkpoints);
+          if (res.data.checkpoints.length > 0) {
+            setSelectedCheckpoint(String(res.data.checkpoints[0].id));
+          }
+        }
+      })
+      .catch((err) => console.error('Failed to load checkpoints:', err));
+  }, []);
+
   const handleLookup = async () => {
     if (!fiydaId.trim()) {
       setLookupError('Please enter a Fiyda ID.');
@@ -73,9 +96,72 @@ export function VerifyTravelerPage() {
       reader.readAsDataURL(file);
     });
 
+  const checkFpQuality = async (source: File | string) => {
+    setQualityChecking(true);
+    setVerifyError('');
+    try {
+      let imagePayload = "";
+      if (typeof source === 'string') {
+        imagePayload = source;
+      } else {
+        imagePayload = await fileToBase64(source);
+      }
+
+      const res = await verificationService.checkQuality({
+        biometricType: 'fingerprint',
+        imageData: imagePayload,
+      });
+
+      setFpQuality(res);
+      if (!res.acceptable) {
+        setFpAttempts((prev) => prev + 1);
+        setVerifyError(`Fingerprint quality is poor (${res.score}%). Please retry.`);
+      } else {
+        setVerifyError('');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setVerifyError('Failed to run quality check on fingerprint.');
+    } finally {
+      setQualityChecking(false);
+    }
+  };
+
+  const checkIrisQuality = async (source: File | string) => {
+    setQualityChecking(true);
+    setVerifyError('');
+    try {
+      let imagePayload = "";
+      if (typeof source === 'string') {
+        imagePayload = source;
+      } else {
+        imagePayload = await fileToBase64(source);
+      }
+
+      const res = await verificationService.checkQuality({
+        biometricType: 'iris',
+        imageData: imagePayload,
+      });
+
+      setIrisQuality(res);
+      if (!res.acceptable) {
+        setIrisAttempts((prev) => prev + 1);
+        setVerifyError(`Iris quality is poor (${res.score}%). Please retry.`);
+      } else {
+        setVerifyError('');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setVerifyError('Failed to run quality check on iris.');
+    } finally {
+      setQualityChecking(false);
+    }
+  };
+
   const handleFingerprintSelect = (file: File | null) => {
     if (!file) {
       setFingerprintSource(null);
+      setFpQuality(null);
       return;
     }
     const allowed = ['png', 'jpg', 'jpeg', 'bmp', 'tif', 'tiff'];
@@ -83,16 +169,19 @@ export function VerifyTravelerPage() {
     if (!allowed.includes(extension)) {
       setVerifyError(`Invalid fingerprint file format. Accepted formats: ${allowed.map(ext => ext.toUpperCase()).join(', ')}`);
       setFingerprintSource(null);
+      setFpQuality(null);
       if (fpInputRef.current) fpInputRef.current.value = '';
       return;
     }
     setVerifyError('');
     setFingerprintSource(file);
+    checkFpQuality(file);
   };
 
   const handleIrisSelect = (file: File | null) => {
     if (!file) {
       setIrisSource(null);
+      setIrisQuality(null);
       return;
     }
     const allowed = ['png', 'jpg', 'jpeg', 'bmp'];
@@ -100,31 +189,36 @@ export function VerifyTravelerPage() {
     if (!allowed.includes(extension)) {
       setVerifyError(`Invalid iris file format. Accepted formats: ${allowed.map(ext => ext.toUpperCase()).join(', ')}`);
       setIrisSource(null);
+      setIrisQuality(null);
       if (irisInputRef.current) irisInputRef.current.value = '';
       return;
     }
     setVerifyError('');
     setIrisSource(file);
+    checkIrisQuality(file);
   };
-
 
   const captureFingerprint = async () => {
     if (captureMode === 'SCANNER') {
-      setFingerprintSource(await scannerService.captureFingerprint());
+      const data = await scannerService.captureFingerprint();
+      setFingerprintSource(data);
+      if (data) checkFpQuality(data);
       return;
     }
-
     fpInputRef.current?.click();
   };
 
   const captureIris = async () => {
     if (captureMode === 'SCANNER') {
-      setIrisSource(await scannerService.captureIris());
+      const data = await scannerService.captureIris();
+      setIrisSource(data);
+      if (data) checkIrisQuality(data);
       return;
     }
-
     irisInputRef.current?.click();
   };
+
+  const [usedThreshold, setUsedThreshold] = useState(95);
 
   const handleVerify = async () => {
     if (!traveler || !fingerprintSource || !irisSource) return;
@@ -137,14 +231,16 @@ export function VerifyTravelerPage() {
             captureMode,
             fingerprintImage: await fileToBase64(fingerprintSource as File),
             irisImage: await fileToBase64(irisSource as File),
-            threshold: decisionThresholds.approvalThreshold,
+            direction,
+            checkpointId: selectedCheckpoint ? Number(selectedCheckpoint) : undefined,
           }
         : {
             travelerId: traveler.id,
             captureMode,
             fingerprintData: String(fingerprintSource),
             irisData: String(irisSource),
-            threshold: decisionThresholds.approvalThreshold,
+            direction,
+            checkpointId: selectedCheckpoint ? Number(selectedCheckpoint) : undefined,
           };
 
       const data = await verificationService.verify(payload);
@@ -154,6 +250,9 @@ export function VerifyTravelerPage() {
         iris: data.irisScore,
         final: data.finalScore,
       });
+      if (data.threshold !== undefined) {
+        setUsedThreshold(data.threshold);
+      }
       setStage('result');
     } catch (err: unknown) {
       const msg =
@@ -268,24 +367,93 @@ export function VerifyTravelerPage() {
                 </span>
               </div>
             </div>
-            <div className="flex-1 grid grid-cols-2 md:grid-cols-3 gap-4">
-              <InfoField icon={User} label="Full Name" value={traveler.fullName} />
-              <InfoField icon={Globe} label="Nationality" value={traveler.nationality} />
-              <InfoField icon={FileText} label="FAN" value={traveler.fan} mono />
-              <InfoField icon={Calendar} label="Date of Birth" value={traveler.dateOfBirth} />
-              <InfoField icon={User} label="Gender" value={traveler.gender} />
-              <div className="col-span-2 md:col-span-3">
-                <InfoField icon={ShieldCheck} label="Record Status" value={traveler.enrollmentStatus} />
+            <div className="flex-1 space-y-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <InfoField icon={User} label="Full Name" value={traveler.fullName} />
+                <InfoField icon={Globe} label="Nationality" value={traveler.nationality} />
+                <InfoField icon={FileText} label="FAN" value={traveler.fan} mono />
+                <InfoField icon={Calendar} label="Date of Birth" value={traveler.dateOfBirth} />
+                <InfoField icon={User} label="Gender" value={traveler.gender} />
+                <div className="col-span-2 md:col-span-3">
+                  <InfoField icon={ShieldCheck} label="Record Status" value={traveler.enrollmentStatus} />
+                </div>
+              </div>
+
+              {traveler.alertStatus && traveler.alertStatus !== 'NONE' && (
+                <div className={`flex items-start gap-3 rounded-xl border p-4 ${
+                  traveler.alertStatus === 'RESTRICTED'
+                    ? 'border-accent-red bg-accent-red-soft/40 text-accent-red'
+                    : 'border-accent-amber bg-accent-amber-soft/40 text-accent-amber'
+                }`}>
+                  <ShieldAlert size={20} className="shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="text-sm font-bold uppercase">{traveler.alertStatus} ALERT ACTIVE</h4>
+                    <p className="text-xs font-medium mt-1">{traveler.alertReason || 'Requires additional manual inspection.'}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Section 3 — Checkpoint and Direction */}
+      {traveler && stage !== 'lookup' && stage !== 'result' && (
+        <div className="card p-6">
+          <SectionHeader step={3} title="Checkpoint & Direction" subtitle="Select terminal location and entry/exit direction" />
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="label">Border Checkpoint</label>
+              <select
+                value={selectedCheckpoint}
+                onChange={(e) => setSelectedCheckpoint(e.target.value)}
+                className="input mt-1"
+                required
+              >
+                {checkpoints.length === 0 ? (
+                  <option value="">Loading checkpoints...</option>
+                ) : (
+                  checkpoints.map((cp) => (
+                    <option key={cp.id} value={cp.id}>{cp.name}</option>
+                  ))
+                )}
+              </select>
+            </div>
+            <div>
+              <label className="label">Direction</label>
+              <div className="flex gap-6 mt-3">
+                <label className="inline-flex items-center text-sm font-semibold text-navy-800 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="direction"
+                    value="ENTRY"
+                    checked={direction === 'ENTRY'}
+                    onChange={() => setDirection('ENTRY')}
+                    className="mr-2 h-4 w-4 border-navy-300 text-navy-800 focus:ring-navy-500"
+                  />
+                  ENTRY
+                </label>
+                <label className="inline-flex items-center text-sm font-semibold text-navy-800 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="direction"
+                    value="EXIT"
+                    checked={direction === 'EXIT'}
+                    onChange={() => setDirection('EXIT')}
+                    className="mr-2 h-4 w-4 border-navy-300 text-navy-800 focus:ring-navy-500"
+                  />
+                  EXIT
+                </label>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Section 3 — Biometric upload */}
+      {/* Section 4 — Biometric upload */}
       {traveler && stage !== 'lookup' && (
         <div className="card p-6">
-          <SectionHeader step={3} title="Biometric Capture" subtitle="Capture biometrics before verification" />
+          <SectionHeader step={4} title="Biometric Capture" subtitle="Capture biometrics before verification" />
           <div className="mt-4 flex flex-col sm:flex-row gap-3">
             <button
               type="button"
@@ -310,6 +478,8 @@ export function VerifyTravelerPage() {
               fileName={typeof fingerprintSource === 'string' ? 'Scanner fingerprint captured' : fingerprintSource?.name}
               actionLabel={captureMode === 'SCANNER' ? 'Capture Fingerprint' : 'Choose Image'}
               onAction={captureFingerprint}
+              quality={fpQuality}
+              attempts={fpAttempts}
             />
             <input
               ref={fpInputRef}
@@ -325,6 +495,8 @@ export function VerifyTravelerPage() {
               fileName={typeof irisSource === 'string' ? 'Scanner iris captured' : irisSource?.name}
               actionLabel={captureMode === 'SCANNER' ? 'Capture Iris' : 'Choose Image'}
               onAction={captureIris}
+              quality={irisQuality}
+              attempts={irisAttempts}
             />
             <input
               ref={irisInputRef}
@@ -334,9 +506,25 @@ export function VerifyTravelerPage() {
               onChange={(e) => handleIrisSelect(e.target.files?.[0] ?? null)}
             />
           </div>
+          {qualityChecking && (
+            <div className="mt-3 text-xs text-accent-blue font-semibold animate-pulse flex items-center gap-1.5 justify-center">
+              <Loader2 size={12} className="animate-spin" /> Evaluating image capture quality...
+            </div>
+          )}
           {verifyError && (
             <div className="mt-4 flex items-center gap-2 text-sm text-accent-red bg-accent-red-soft rounded-lg px-3 py-2">
               <AlertCircle size={15} /> {verifyError}
+            </div>
+          )}
+          {(fpAttempts >= 3 || irisAttempts >= 3) && (
+            <div className="mt-4 rounded-xl border border-accent-amber bg-accent-amber-soft/40 p-4">
+              <div className="flex items-start gap-2.5">
+                <AlertCircle className="text-accent-amber shrink-0 mt-0.5" size={16} />
+                <div>
+                  <h4 className="text-xs font-bold text-navy-800">Biometric Quality Check Repeated Failures</h4>
+                  <p className="text-xs text-navy-600 mt-1">Biometric quality checks have failed 3 times. You should bypass standard verification and submit a manual review request to the supervisor via the <strong>Manual Review Request</strong> tab in the sidebar.</p>
+                </div>
+              </div>
             </div>
           )}
           <div className="mt-4 flex items-start gap-2 rounded-lg bg-accent-blue-soft px-3 py-2.5 text-xs text-accent-blue">
@@ -349,13 +537,20 @@ export function VerifyTravelerPage() {
         </div>
       )}
 
-      {/* Section 4 — Verify button */}
+      {/* Section 5 — Verify button */}
       {traveler && stage !== 'lookup' && stage !== 'result' && (
         <div className="card p-6 flex flex-col items-center">
-          <SectionHeader step={4} title="Run Verification" subtitle="Submit biometrics to the AI decision engine" centered />
+          <SectionHeader step={5} title="Run Verification" subtitle="Submit biometrics to the AI decision engine" centered />
           <button
             onClick={handleVerify}
-            disabled={!fingerprintSource || !irisSource || stage === 'processing'}
+            disabled={
+              !fingerprintSource ||
+              !irisSource ||
+              stage === 'processing' ||
+              qualityChecking ||
+              (fpQuality && !fpQuality.acceptable && fpAttempts < 3) ||
+              (irisQuality && !irisQuality.acceptable && irisAttempts < 3)
+            }
             className="mt-4 btn bg-accent-green text-white hover:bg-green-700 disabled:bg-navy-200 disabled:text-navy-400 disabled:cursor-not-allowed px-10 py-4 text-base font-semibold tracking-wide"
           >
             {stage === 'processing' ? (
@@ -366,6 +561,10 @@ export function VerifyTravelerPage() {
           </button>
           {!fingerprintSource || !irisSource ? (
             <p className="mt-3 text-xs text-navy-400">Upload both biometric images to enable verification.</p>
+          ) : qualityChecking ? (
+            <p className="mt-3 text-xs text-accent-blue animate-pulse">Waiting for biometric quality checks to complete...</p>
+          ) : (fpQuality && !fpQuality.acceptable && fpAttempts < 3) || (irisQuality && !irisQuality.acceptable && irisAttempts < 3) ? (
+            <p className="mt-3 text-xs text-accent-red font-semibold">Biometric scans do not meet quality standards. Please capture/upload again.</p>
           ) : (
             <p className="mt-3 text-xs text-navy-400">AI will compare against stored biometric templates (1:1 verification).</p>
           )}
@@ -373,9 +572,9 @@ export function VerifyTravelerPage() {
       )}
 
 
-      {/* Section 5 — Result */}
+      {/* Section 6 — Result */}
       {stage === 'result' && (
-        <ResultPanel result={result} scores={scores} onReset={reset} />
+        <ResultPanel result={result} scores={scores} onReset={reset} usedThreshold={usedThreshold} />
       )}
     </div>
   );
@@ -439,20 +638,45 @@ function InfoField({ icon: Icon, label, value, mono }: { icon: typeof User; labe
   );
 }
 
-function UploadCard({ icon: Icon, title, hint, fileName, actionLabel, onAction }: { icon: typeof Fingerprint; title: string; hint: string; fileName?: string; actionLabel: string; onAction: () => void }) {
+function UploadCard({
+  icon: Icon,
+  title,
+  hint,
+  fileName,
+  actionLabel,
+  onAction,
+  quality,
+  attempts,
+}: {
+  icon: typeof Fingerprint;
+  title: string;
+  hint: string;
+  fileName?: string;
+  actionLabel: string;
+  onAction: () => void;
+  quality?: { score: number; acceptable: boolean } | null;
+  attempts?: number;
+}) {
   const done = !!fileName;
   return (
-    <div className={`rounded-xl border-2 border-dashed p-6 transition-colors ${done ? 'border-accent-green bg-accent-green-soft/40' : 'border-navy-200 hover:border-navy-300 bg-navy-50/40'}`}>
+    <div className={`rounded-xl border-2 border-dashed p-6 transition-colors ${done ? (quality?.acceptable ? 'border-accent-green bg-accent-green-soft/40' : 'border-accent-amber bg-accent-amber-soft/40') : 'border-navy-200 hover:border-navy-300 bg-navy-50/40'}`}>
       <div className="flex items-start gap-4">
-        <div className={`h-12 w-12 rounded-lg flex items-center justify-center shrink-0 ${done ? 'bg-accent-green text-white' : 'bg-navy-100 text-navy-500'}`}>
-          {done ? <CheckCircle2 size={24} /> : <Icon size={24} />}
+        <div className={`h-12 w-12 rounded-lg flex items-center justify-center shrink-0 ${done ? (quality?.acceptable ? 'bg-accent-green text-white' : 'bg-accent-amber text-white') : 'bg-navy-100 text-navy-500'}`}>
+          {done ? (quality?.acceptable ? <CheckCircle2 size={24} /> : <AlertCircle size={24} />) : <Icon size={24} />}
         </div>
         <div className="flex-1">
           <div className="text-sm font-semibold text-navy-800">{title}</div>
           <div className="text-xs text-navy-400 mt-0.5">{hint}</div>
           {done ? (
-            <div className="mt-3 text-xs font-medium text-accent-green flex items-center gap-1.5">
-              <CheckCircle2 size={13} /> {fileName}
+            <div className="mt-3 space-y-1">
+              <div className="text-xs font-medium text-navy-700 flex items-center gap-1.5">
+                <Paperclip size={13} /> {fileName}
+              </div>
+              {quality && (
+                <div className={`text-[11px] font-bold flex items-center gap-1 ${quality.acceptable ? 'text-accent-green' : 'text-accent-red'}`}>
+                  Quality: {quality.score}% · {quality.acceptable ? 'ACCEPTABLE' : `POOR QUALITY (${attempts}/3 attempts)`}
+                </div>
+              )}
             </div>
           ) : (
             <button onClick={onAction} className="mt-3 btn-secondary text-xs px-3 py-2">
@@ -465,10 +689,10 @@ function UploadCard({ icon: Icon, title, hint, fileName, actionLabel, onAction }
   );
 }
 
-function ResultPanel({ result, scores, onReset }: { result: VerificationResult; scores: { fingerprint: number; iris: number; final: number }; onReset: () => void }) {
+function ResultPanel({ result, scores, onReset, usedThreshold }: { result: VerificationResult; scores: { fingerprint: number; iris: number; final: number }; onReset: () => void; usedThreshold: number }) {
   return (
     <div className="card p-6">
-      <SectionHeader step={5} title="Verification Decision" subtitle="AI decision engine result" centered />
+      <SectionHeader step={6} title="Verification Decision" subtitle="AI decision engine result" centered />
 
       {/* Decision banner */}
       <div className="mt-5 flex justify-center">
@@ -478,7 +702,7 @@ function ResultPanel({ result, scores, onReset }: { result: VerificationResult; 
               <CheckCircle2 size={30} />
             </div>
             <h3 className="mt-3 text-xl font-bold text-accent-green">VERIFIED</h3>
-            <p className="text-sm text-green-700 mt-1">Identity confirmed · Confidence ≥ {decisionThresholds.approvalThreshold}% · Automatic approval</p>
+            <p className="text-sm text-green-700 mt-1">Identity confirmed · Confidence ≥ {usedThreshold}% · Automatic approval</p>
           </div>
         )}
         {result === 'rejected' && (
@@ -487,7 +711,7 @@ function ResultPanel({ result, scores, onReset }: { result: VerificationResult; 
               <XCircle size={30} />
             </div>
             <h3 className="mt-3 text-xl font-bold text-accent-red">REJECTED</h3>
-            <p className="text-sm text-red-700 mt-1">Biometric match below acceptance threshold · Automatic rejection</p>
+            <p className="text-sm text-red-700 mt-1">Biometric match below acceptance threshold ({usedThreshold}%) · Automatic rejection</p>
           </div>
         )}
         {result === 'pending' && (
@@ -496,7 +720,7 @@ function ResultPanel({ result, scores, onReset }: { result: VerificationResult; 
               <Clock size={30} />
             </div>
             <h3 className="mt-3 text-xl font-bold text-accent-amber">PENDING SUPERVISOR REVIEW</h3>
-            <p className="text-sm text-amber-700 mt-1">Confidence in review range ({decisionThresholds.reviewRangeMin}–{decisionThresholds.reviewRangeMax}%) · Awaiting Supervisor Decision</p>
+            <p className="text-sm text-amber-700 mt-1">Confidence in review range (85–{usedThreshold}%) · Awaiting Supervisor Decision</p>
           </div>
         )}
       </div>

@@ -27,6 +27,8 @@ export async function lookupTraveler(req: Request, res: Response, next: NextFunc
       nationality: traveler.nationality,
       photo: traveler.photo,
       enrollmentStatus: traveler.enrollmentStatus,
+      alertStatus: traveler.alertStatus,
+      alertReason: traveler.alertReason,
     });
   } catch (err) {
     next(err);

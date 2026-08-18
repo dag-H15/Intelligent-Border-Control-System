@@ -13,6 +13,8 @@ export interface VerificationPayload {
   fingerprintData?: string;
   irisData?: string;
   threshold?: number;
+  direction?: 'ENTRY' | 'EXIT';
+  checkpointId?: number;
 }
 
 interface BackendTraveler {
@@ -48,7 +50,7 @@ interface MyActivityResponse {
   }>;
 }
 
-function mapVerificationLog(log: BackendVerificationLog, traveler: BackendTraveler, officerName?: string): VerificationRecord {
+function mapVerificationLog(log: any, traveler: BackendTraveler, officerName?: string): VerificationRecord {
   return {
     id: String(log.id),
     verificationId: log.id,
@@ -60,6 +62,11 @@ function mapVerificationLog(log: BackendVerificationLog, traveler: BackendTravel
     fingerprintScore: log.fingerprintScore,
     irisScore: log.irisScore,
     finalScore: log.finalScore,
+    threshold: log.threshold,
+    direction: log.direction,
+    checkpointName: log.checkpoint?.name,
+    alertStatusAtVerification: log.alertStatusAtVerification,
+    alertReasonAtVerification: log.alertReasonAtVerification,
   };
 }
 
@@ -72,5 +79,22 @@ export const verificationService = {
   getMyActivity: async () => {
     const { data } = await api.get<MyActivityResponse>('/verification/my-activity');
     return data.verificationLogs.map((log) => mapVerificationLog(log, log.traveler));
+  },
+
+  checkQuality: async (payload: { biometricType: 'fingerprint' | 'iris'; image?: string; imageData?: string }) => {
+    const { data } = await api.post<{ score: number; acceptable: boolean; details?: any }>('/verification/quality', payload);
+    return data;
+  },
+
+  getStats: async () => {
+    const { data } = await api.get<{
+      todayCrossings: number;
+      todayEntries: number;
+      todayExits: number;
+      todayAccepted: number;
+      todayRejected: number;
+      todayReviews: number;
+    }>('/verification/stats');
+    return data;
   },
 };

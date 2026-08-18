@@ -15,8 +15,9 @@ export interface AiTemplateComparisonInput {
   threshold?: number;
 }
 
-function bytesToBase64(bytes?: Buffer | Uint8Array | null): string {
+function bytesToBase64(bytes?: Buffer | Uint8Array | string | null): string {
   if (!bytes) return "";
+  if (typeof bytes === "string") return bytes;
   return Buffer.isBuffer(bytes) ? bytes.toString("base64") : Buffer.from(bytes).toString("base64");
 }
 
@@ -94,6 +95,51 @@ export async function compareBiometricTemplate(input: AiTemplateComparisonInput)
     score: Number(result.score),
     match: Boolean(result.match),
     biometricType: (result.biometricType ?? input.biometricType) as BiometricType,
+  };
+}
+
+export interface AiQualityInput {
+  biometricType: BiometricType;
+  imageBuffer?: Buffer;
+  imageData?: string;
+}
+
+export async function checkBiometricQuality(input: AiQualityInput): Promise<{
+  score: number;
+  acceptable: boolean;
+  biometricType: BiometricType;
+  details?: {
+    sharpness: number;
+    contrast: number;
+    heuristic: number;
+    laplacianVariance: number;
+  };
+}> {
+  const response = await fetch(buildAiUrl("quality"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      biometricType: input.biometricType,
+      image: toImagePayload(input.imageBuffer, input.imageData),
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`AI Service returned error HTTP ${response.status}: ${errorText}`);
+  }
+
+  const result = (await response.json()) as {
+    score: number;
+    acceptable: boolean;
+    biometricType?: BiometricType;
+    details?: any;
+  };
+  return {
+    score: Number(result.score),
+    acceptable: Boolean(result.acceptable),
+    biometricType: (result.biometricType ?? input.biometricType) as BiometricType,
+    details: result.details,
   };
 }
 

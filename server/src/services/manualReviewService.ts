@@ -126,6 +126,28 @@ export async function decideManualReview(input: DecideManualReviewInput) {
     throw error;
   }
 
+  if (request.verificationId) {
+    const vLog = await prisma.verificationLog.findUnique({ where: { id: request.verificationId } });
+    if (vLog) {
+      const vDecision = decision === ManualReviewDecision.APPROVED_OVERRIDE ? "VERIFIED" : "REJECTED";
+      
+      await prisma.verificationLog.update({
+        where: { id: request.verificationId },
+        data: { finalDecision: vDecision },
+      });
+
+      await prisma.overrideRecord.create({
+        data: {
+          verificationId: request.verificationId,
+          supervisorId,
+          previousDecision: vLog.finalDecision || "PENDING_SUPERVISOR_REVIEW",
+          newDecision: vDecision,
+          reason: notes,
+        },
+      });
+    }
+  }
+
   return prisma.manualReviewRequest.update({
     where: { id: requestId },
     data: {

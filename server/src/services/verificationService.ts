@@ -4,6 +4,8 @@ import { DEFAULT_THRESHOLD } from "../config/constants";
 import { decideVerification } from "./decisionEngine";
 import { compareBiometricTemplate, type CaptureMode } from "./aiClient";
 
+import { BorderDirection } from "../../generated/prisma";
+
 interface RunVerificationInput {
   travelerId?: number;
   fan?: string;
@@ -14,6 +16,8 @@ interface RunVerificationInput {
   irisImage?: Buffer;
   fingerprintData?: string;
   irisData?: string;
+  direction?: BorderDirection;
+  checkpointId?: number;
 }
 
 import { getSystemSettings } from "./settingsService";
@@ -72,7 +76,18 @@ export async function runVerification(input: RunVerificationInput) {
     finalScore: Math.round(((fingerprintComparison.score + irisComparison.score) / 2) * 100) / 100,
   };
 
-  const systemDecision = decideVerification(scores.finalScore, threshold);
+  let systemDecision: Decision = "VERIFIED";
+  let decisionReason = "";
+
+  if (traveler.alertStatus === "RESTRICTED") {
+    systemDecision = "REJECTED";
+    decisionReason = `Traveller is marked as restricted: ${traveler.alertReason || "No details specified"}`;
+  } else if (traveler.alertStatus === "WARNING") {
+    systemDecision = "PENDING_SUPERVISOR_REVIEW";
+    decisionReason = `Traveller alert status is WARNING: ${traveler.alertReason || "Requires manual review"}`;
+  } else {
+    systemDecision = decideVerification(scores.finalScore, threshold);
+  }
 
   const verificationLog = await prisma.verificationLog.create({
     data: {
@@ -85,10 +100,66 @@ export async function runVerification(input: RunVerificationInput) {
       status: "COMPLETED",
       systemDecision,
       finalDecision: systemDecision,
+      direction: input.direction || "ENTRY",
+      checkpointId: input.checkpointId,
+      decisionReason,
+      alertStatusAtVerification: traveler.alertStatus,
+      alertReasonAtVerification: traveler.alertReason,
     },
   });
 
+  if (systemDecision === "PENDING_SUPERVISOR_REVIEW") {
+    let reason = "THRESHOLD_BREACH";
+    if (traveler.alertStatus === "WARNING") {
+      reason = "ALERT_WARNING";
+    }
+
+    await prisma.manualReviewRequest.create({
+      data: {
+        travelerId: traveler.id,
+        officerId: input.officerId,
+        verificationId: verificationLog.id,
+        reason: reason as any,
+        officerNotes: decisionReason || "Automatic manual review trigger",
+        status: "PENDING",
+      },
+    });
+
+    const { notifyAllSupervisors } = require("./notificationService");
+    await notifyAllSupervisors(
+      "Pending Manual Review Request",
+      `New review required for traveler ${traveler.fullName} (FAN: ${traveler.fan}) due to ${reason.replace(/_/g, " ")}.`,
+      "WARNING"
+    ).catch((err: any) => console.error("Failed to notify supervisors:", err));
+  }
+
   return { verificationLog, traveler, ...scores };
+}
+
+export async function getDashboardStats() {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const end = new Date();
+  end.setHours(23, 59, 59, 999);
+
+  const logs = await prisma.verificationLog.findMany({
+    where: { timestamp: { gte: start, lte: end } },
+    select: { finalDecision: true, direction: true }
+  });
+
+  const reviews = await prisma.manualReviewRequest.findMany({
+    where: { createdAt: { gte: start, lte: end } },
+    select: { id: true }
+  });
+
+  return {
+    todayCrossings: logs.length,
+    todayEntries: logs.filter((l) => l.direction === "ENTRY").length,
+    todayExits: logs.filter((l) => l.direction === "EXIT").length,
+    todayAccepted: logs.filter((l) => l.finalDecision === "VERIFIED").length,
+    todayRejected: logs.filter((l) => l.finalDecision === "REJECTED").length,
+    todayReviews: reviews.length,
+  };
 }
 
 /**

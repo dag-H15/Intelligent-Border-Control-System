@@ -10,6 +10,8 @@ import manualReviewRoutes from "./routes/manualReviewRoutes";
 import auditRoutes from "./routes/auditRoutes";
 import reportRoutes from "./routes/reportRoutes";
 import settingsRoutes from "./routes/settingsRoutes";
+import checkpointRoutes from "./routes/checkpointRoutes";
+import notificationRoutes from "./routes/notificationRoutes";
 
 const app = express();
 
@@ -33,6 +35,8 @@ app.use("/api/manual-reviews", manualReviewRoutes);
 app.use("/api/audit-logs", auditRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/settings", settingsRoutes);
+app.use("/api/checkpoints", checkpointRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 // --- 404 handler ---
 app.use((req: Request, res: Response) => {

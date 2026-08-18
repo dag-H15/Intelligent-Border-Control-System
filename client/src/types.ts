@@ -99,6 +99,11 @@ export interface VerificationRecord {
   fingerprintScore: number;
   irisScore: number;
   finalScore: number;
+  threshold?: number;
+  direction?: 'ENTRY' | 'EXIT';
+  checkpointName?: string;
+  alertStatusAtVerification?: string | null;
+  alertReasonAtVerification?: string | null;
 }
 
 export interface PendingCase {

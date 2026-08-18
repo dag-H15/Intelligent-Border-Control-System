@@ -24,6 +24,7 @@ model User {
   manualReviews       ManualReviewRequest[]   @relation("ManualReviewSupervisors")
   reports            Report[]
   verificationLogs   VerificationLog[] @relation("OfficerVerifications")
+  notifications      Notification[]
 
   @@map("users")
 }
@@ -43,6 +44,8 @@ model Traveler {
   biometric        Biometric?
   verificationLogs VerificationLog[]
   manualReviewRequests ManualReviewRequest[]
+  alertStatus      AlertStatus       @default(NONE) @map("alert_status")
+  alertReason      String?           @map("alert_reason")
 
   @@map("travelers")
 }
@@ -74,15 +77,33 @@ model VerificationLog {
   systemDecision   Decision?          @map("system_decision")
   finalDecision    Decision?          @map("final_decision")
   timestamp        DateTime           @default(now())
+  
+  direction                 BorderDirection?    @default(ENTRY)
+  checkpointId              Int?                @map("checkpoint_id")
+  decisionReason            String?             @map("decision_reason")
+  alertStatusAtVerification AlertStatus?        @map("alert_status_at_verification")
+  alertReasonAtVerification String?             @map("alert_reason_at_verification")
+
   overrideRecord   OverrideRecord?
   manualReviewRequest ManualReviewRequest?
   officer          User               @relation("OfficerVerifications", fields: [officerId], references: [id])
   traveler         Traveler           @relation(fields: [travelerId], references: [id])
+  checkpoint       Checkpoint?        @relation(fields: [checkpointId], references: [id])
 
   @@index([travelerId])
   @@index([officerId])
   @@index([systemDecision])
   @@map("verification_logs")
+}
+
+model Checkpoint {
+  id               Int                @id @default(autoincrement())
+  name             String             @unique
+  location         String?
+  createdAt        DateTime           @default(now()) @map("created_at")
+  verificationLogs VerificationLog[]
+
+  @@map("checkpoints")
 }
 
 model OverrideRecord {
@@ -187,6 +208,9 @@ enum ManualReviewReason {
   FINGERPRINT_INJURY
   IRIS_INJURY
   BIOMETRIC_UNAVAILABLE
+  THRESHOLD_BREACH
+  ALERT_WARNING
+  QUALITY_ISSUE
 }
 
 enum ManualReviewDecision {
@@ -219,4 +243,30 @@ model SystemSetting {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("system_settings")
+}
+
+model Notification {
+  id          Int      @id @default(autoincrement())
+  userId      Int      @map("user_id")
+  title       String
+  message     String
+  type        String   @default("INFO")
+  isRead      Boolean  @default(false)  @map("is_read")
+  createdAt   DateTime @default(now())  @map("created_at")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+  @@map("notifications")
+}
+
+enum BorderDirection {
+  ENTRY
+  EXIT
+}
+
+enum AlertStatus {
+  NONE
+  WARNING
+  RESTRICTED
 }
