@@ -115,6 +115,9 @@ export function HistoryPage() {
                 <tr>
                   <th className="table-header px-5 py-3">Traveler</th>
                   <th className="table-header px-5 py-3">Fiyda ID</th>
+                  <th className="table-header px-5 py-3">Direction</th>
+                  <th className="table-header px-5 py-3">Checkpoint</th>
+                  <th className="table-header px-5 py-3">Alert Status</th>
                   <th className="table-header px-5 py-3">Date / Time</th>
                   <th className="table-header px-5 py-3">Fingerprint</th>
                   <th className="table-header px-5 py-3">Iris</th>
@@ -130,6 +133,29 @@ export function HistoryPage() {
                       <div className="text-xs text-navy-400 font-mono">{r.id}</div>
                     </td>
                     <td className="px-5 py-3 font-mono text-xs text-navy-600">{r.fiydaId}</td>
+                    <td className="px-5 py-3">
+                      <span className={`text-xs font-semibold px-2 py-1 rounded ${
+                        r.direction === 'ENTRY' 
+                          ? 'bg-blue-100 text-blue-700' 
+                          : r.direction === 'EXIT'
+                          ? 'bg-purple-100 text-purple-700'
+                          : 'bg-navy-100 text-navy-500'
+                      }`}>
+                        {r.direction || '—'}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3 text-navy-600 text-xs">{r.checkpointName || '—'}</td>
+                    <td className="px-5 py-3">
+                      <span className={`text-xs font-bold ${
+                        r.alertStatusAtVerification === 'CRITICAL' 
+                          ? 'text-accent-red' 
+                          : r.alertStatusAtVerification === 'WARNING' 
+                          ? 'text-accent-amber' 
+                          : 'text-accent-green'
+                      }`}>
+                        {r.alertStatusAtVerification || 'NONE'}
+                      </span>
+                    </td>
                     <td className="px-5 py-3 text-navy-600 whitespace-nowrap">{r.date}</td>
                     <td className="px-5 py-3"><ScoreCell value={r.fingerprintScore} /></td>
                     <td className="px-5 py-3"><ScoreCell value={r.irisScore} /></td>

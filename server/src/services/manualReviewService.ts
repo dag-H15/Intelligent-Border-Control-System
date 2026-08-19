@@ -1,5 +1,10 @@
 import prisma from "../config/prisma";
-import { Prisma, ManualReviewDecision, ManualReviewReason, ManualReviewStatus } from "../../generated/prisma";
+import {
+  Prisma,
+  ManualReviewDecision,
+  ManualReviewReason,
+  ManualReviewStatus,
+} from "../../generated/prisma";
 
 const ALLOWED_MIME_TYPES = new Set(["application/pdf", "image/jpeg", "image/png"]);
 const ALLOWED_EXTENSIONS = new Set(["pdf", "jpg", "jpeg", "png"]);
@@ -28,9 +33,9 @@ export interface DecideManualReviewInput {
 }
 
 function validateAttachment(file: Express.Multer.File) {
-  const extension = file.originalname.split('.').pop()?.toLowerCase() || '';
+  const extension = file.originalname.split(".").pop()?.toLowerCase() ?? "";
   if (!ALLOWED_MIME_TYPES.has(file.mimetype) || !ALLOWED_EXTENSIONS.has(extension)) {
-    const error = new Error('Attachments must be PDF, JPG, or PNG files only.');
+    const error = new Error("Attachments must be PDF, JPG, or PNG files only.");
     (error as any).statusCode = 400;
     throw error;
   }
@@ -41,29 +46,50 @@ function toAttachment(file: Express.Multer.File): ManualReviewAttachment {
     originalName: file.originalname,
     mimeType: file.mimetype,
     size: file.size,
-    data: file.buffer.toString('base64'),
+    data: file.buffer.toString("base64"),
   };
 }
+
+/** The Prisma include block used by all list/get queries — keeps them consistent */
+const REVIEW_INCLUDE = {
+  traveler:  { select: { fan: true, fullName: true, enrollmentStatus: true } },
+  officer:   { select: { id: true, name: true } },
+  supervisor: { select: { id: true, name: true } },
+  verification: {
+    select: {
+      id: true,
+      fingerprintScore: true,
+      irisScore: true,
+      finalScore: true,
+      threshold: true,
+      finalDecision: true,
+      direction: true,
+      checkpointId: true,
+      alertStatusAtVerification: true,
+      alertReasonAtVerification: true,
+      checkpoint: { select: { id: true, name: true } },
+    },
+  },
+} as const;
 
 export async function createManualReviewRequest(input: CreateManualReviewInput) {
   const { travelerId, officerId, verificationId, reason, officerNotes, files = [] } = input;
 
   if (files.length > 5) {
-    const error = new Error('You can upload at most 5 files.');
+    const error = new Error("You can upload at most 5 files.");
     (error as any).statusCode = 400;
     throw error;
   }
-
   for (const file of files) {
     if (file.size > 10 * 1024 * 1024) {
-      const error = new Error('Each file must be 10 MB or smaller.');
+      const error = new Error("Each file must be 10 MB or smaller.");
       (error as any).statusCode = 400;
       throw error;
     }
     validateAttachment(file);
   }
 
-  const manualReview = await prisma.manualReviewRequest.create({
+  return prisma.manualReviewRequest.create({
     data: {
       travelerId,
       officerId,
@@ -72,41 +98,15 @@ export async function createManualReviewRequest(input: CreateManualReviewInput) 
       officerNotes,
       attachments: files.map(toAttachment) as unknown as Prisma.InputJsonValue,
     },
-    include: {
-      traveler: { select: { fan: true, fullName: true, enrollmentStatus: true } },
-      officer: { select: { id: true, name: true } },
-      verification: {
-        select: {
-          id: true,
-          fingerprintScore: true,
-          irisScore: true,
-          finalScore: true,
-          finalDecision: true,
-        },
-      },
-    },
+    include: REVIEW_INCLUDE,
   });
-
-  return manualReview;
 }
 
 export async function listPendingManualReviews() {
   return prisma.manualReviewRequest.findMany({
     where: { status: ManualReviewStatus.PENDING },
     orderBy: { createdAt: "desc" },
-    include: {
-      traveler: { select: { fan: true, fullName: true, enrollmentStatus: true } },
-      officer: { select: { id: true, name: true } },
-      verification: {
-        select: {
-          id: true,
-          fingerprintScore: true,
-          irisScore: true,
-          finalScore: true,
-          finalDecision: true,
-        },
-      },
-    },
+    include: REVIEW_INCLUDE,
   });
 }
 
@@ -115,22 +115,25 @@ export async function decideManualReview(input: DecideManualReviewInput) {
 
   const request = await prisma.manualReviewRequest.findUnique({ where: { id: requestId } });
   if (!request) {
-    const error = new Error('Manual review request not found');
+    const error = new Error("Manual review request not found");
     (error as any).statusCode = 404;
     throw error;
   }
-
   if (request.status !== ManualReviewStatus.PENDING) {
-    const error = new Error('This manual review request is no longer pending');
+    const error = new Error("This manual review request is no longer pending");
     (error as any).statusCode = 409;
     throw error;
   }
 
+  // Update the linked VerificationLog final decision and create OverrideRecord
   if (request.verificationId) {
-    const vLog = await prisma.verificationLog.findUnique({ where: { id: request.verificationId } });
+    const vLog = await prisma.verificationLog.findUnique({
+      where: { id: request.verificationId },
+    });
     if (vLog) {
-      const vDecision = decision === ManualReviewDecision.APPROVED_OVERRIDE ? "VERIFIED" : "REJECTED";
-      
+      const vDecision =
+        decision === ManualReviewDecision.APPROVED_OVERRIDE ? "VERIFIED" : "REJECTED";
+
       await prisma.verificationLog.update({
         where: { id: request.verificationId },
         data: { finalDecision: vDecision },
@@ -140,7 +143,7 @@ export async function decideManualReview(input: DecideManualReviewInput) {
         data: {
           verificationId: request.verificationId,
           supervisorId,
-          previousDecision: vLog.finalDecision || "PENDING_SUPERVISOR_REVIEW",
+          previousDecision: vLog.finalDecision ?? "PENDING_SUPERVISOR_REVIEW",
           newDecision: vDecision,
           reason: notes,
         },
@@ -148,59 +151,34 @@ export async function decideManualReview(input: DecideManualReviewInput) {
     }
   }
 
+  const newStatus =
+    decision === ManualReviewDecision.APPROVED_OVERRIDE
+      ? ManualReviewStatus.APPROVED
+      : decision === ManualReviewDecision.REQUEST_RE_ENROLLMENT
+      ? ManualReviewStatus.RE_ENROLLMENT_REQUESTED
+      : ManualReviewStatus.REJECTED;
+
   return prisma.manualReviewRequest.update({
     where: { id: requestId },
-    data: {
-      supervisorId,
-      decision,
-      supervisorNotes: notes,
-      status:
-        decision === ManualReviewDecision.APPROVED_OVERRIDE
-          ? ManualReviewStatus.APPROVED
-          : decision === ManualReviewDecision.REQUEST_RE_ENROLLMENT
-          ? ManualReviewStatus.RE_ENROLLMENT_REQUESTED
-          : ManualReviewStatus.REJECTED,
-    },
-    include: {
-      traveler: { select: { fan: true, fullName: true, enrollmentStatus: true } },
-      officer: { select: { id: true, name: true } },
-      supervisor: { select: { id: true, name: true } },
-      verification: {
-        select: {
-          id: true,
-          fingerprintScore: true,
-          irisScore: true,
-          finalScore: true,
-          finalDecision: true,
-        },
-      },
-    },
+    data: { supervisorId, decision, supervisorNotes: notes, status: newStatus },
+    include: REVIEW_INCLUDE,
   });
 }
 
 export async function getManualReviewHistory(supervisorId?: number) {
-  const whereClause: Prisma.ManualReviewRequestWhereInput = {
-    status: { in: [ManualReviewStatus.APPROVED, ManualReviewStatus.REJECTED, ManualReviewStatus.RE_ENROLLMENT_REQUESTED] },
-  };
-  if (supervisorId !== undefined) {
-    whereClause.supervisorId = supervisorId;
-  }
-  return prisma.manualReviewRequest.findMany({
-    where: whereClause,
-    orderBy: { updatedAt: "desc" },
-    include: {
-      traveler: { select: { fan: true, fullName: true, enrollmentStatus: true } },
-      officer: { select: { id: true, name: true } },
-      supervisor: { select: { id: true, name: true } },
-      verification: {
-        select: {
-          id: true,
-          fingerprintScore: true,
-          irisScore: true,
-          finalScore: true,
-          finalDecision: true,
-        },
-      },
+  const where: Prisma.ManualReviewRequestWhereInput = {
+    status: {
+      in: [
+        ManualReviewStatus.APPROVED,
+        ManualReviewStatus.REJECTED,
+        ManualReviewStatus.RE_ENROLLMENT_REQUESTED,
+      ],
     },
+    ...(supervisorId !== undefined ? { supervisorId } : {}),
+  };
+  return prisma.manualReviewRequest.findMany({
+    where,
+    orderBy: { updatedAt: "desc" },
+    include: REVIEW_INCLUDE,
   });
 }

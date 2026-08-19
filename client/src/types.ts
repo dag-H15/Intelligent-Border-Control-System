@@ -30,6 +30,8 @@ export interface User {
   createdDate: string;
 }
 
+export type AlertStatus = 'NONE' | 'WARNING' | 'CRITICAL';
+
 export interface Traveler {
   id: number;
   fan: string;
@@ -39,9 +41,17 @@ export interface Traveler {
   nationality: string;
   enrollmentStatus: 'DRAFT' | 'COMPLETED';
   photo: string | null;
+  alertStatus: AlertStatus;
+  alertReason: string | null;
 }
 
-export type ManualReviewReason = 'FINGERPRINT_INJURY' | 'IRIS_INJURY' | 'BIOMETRIC_UNAVAILABLE';
+export type ManualReviewReason =
+  | 'FINGERPRINT_INJURY'
+  | 'IRIS_INJURY'
+  | 'BIOMETRIC_UNAVAILABLE'
+  | 'THRESHOLD_BREACH'
+  | 'ALERT_WARNING'
+  | 'QUALITY_ISSUE';
 export type ManualReviewDecision = 'APPROVED_OVERRIDE' | 'REJECTED' | 'REQUEST_RE_ENROLLMENT';
 export type ManualReviewStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'RE_ENROLLMENT_REQUESTED';
 

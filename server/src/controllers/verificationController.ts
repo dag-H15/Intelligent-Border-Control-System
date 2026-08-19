@@ -112,7 +112,10 @@ export async function verify(req: Request, res: Response, next: NextFunction) {
         nationality: result.traveler.nationality,
         photo: result.traveler.photo,
         enrollmentStatus: result.traveler.enrollmentStatus,
+        alertStatus: result.traveler.alertStatus,
+        alertReason: result.traveler.alertReason,
       },
+      decisionReason: result.decisionReason,
     });
   } catch (err) {
     if ((err as any)?.statusCode === 404 || (err as any)?.statusCode === 409) {

@@ -3,7 +3,8 @@ import { Decision } from "../../generated/prisma";
 import { DEFAULT_THRESHOLD } from "../config/constants";
 import { decideVerification } from "./decisionEngine";
 import { compareBiometricTemplate, type CaptureMode } from "./aiClient";
-
+import { getSystemSettings } from "./settingsService";
+import { notifyAllSupervisors } from "./notificationService";
 import { BorderDirection } from "../../generated/prisma";
 
 interface RunVerificationInput {
@@ -20,15 +21,15 @@ interface RunVerificationInput {
   checkpointId?: number;
 }
 
-import { getSystemSettings } from "./settingsService";
-
 export async function runVerification(input: RunVerificationInput) {
+  // 1. Resolve threshold from admin settings if not explicitly supplied
   let threshold = input.threshold;
   if (threshold === undefined) {
     const settings = await getSystemSettings();
     threshold = settings.approvalThreshold ?? DEFAULT_THRESHOLD;
   }
 
+  // 2. Fetch traveler with biometrics
   let traveler = await prisma.traveler.findFirst({
     where: input.travelerId ? { id: input.travelerId } : { fan: input.fan },
     include: { biometric: true },
@@ -40,6 +41,7 @@ export async function runVerification(input: RunVerificationInput) {
     throw error;
   }
 
+  // Auto-fix stale enrollment status
   if (traveler.biometric && traveler.enrollmentStatus !== "COMPLETED") {
     traveler = await prisma.traveler.update({
       where: { id: traveler.id },
@@ -54,6 +56,7 @@ export async function runVerification(input: RunVerificationInput) {
     throw error;
   }
 
+  // 3. Biometric comparison
   const fingerprintComparison = await compareBiometricTemplate({
     biometricType: "fingerprint",
     imageBuffer: input.fingerprintImage,
@@ -73,22 +76,42 @@ export async function runVerification(input: RunVerificationInput) {
   const scores = {
     fingerprintScore: fingerprintComparison.score,
     irisScore: irisComparison.score,
-    finalScore: Math.round(((fingerprintComparison.score + irisComparison.score) / 2) * 100) / 100,
+    finalScore:
+      Math.round(((fingerprintComparison.score + irisComparison.score) / 2) * 100) / 100,
   };
 
-  let systemDecision: Decision = "VERIFIED";
-  let decisionReason = "";
+  // 4. Decision logic
+  // Priority: CRITICAL > WARNING > biometric threshold
+  // Snapshot the current alert status so history is immutable even if it changes later.
+  const alertAtVerification = traveler.alertStatus;
+  const alertReasonAtVerification = traveler.alertReason;
 
-  if (traveler.alertStatus === "RESTRICTED") {
-    systemDecision = "REJECTED";
-    decisionReason = `Traveller is marked as restricted: ${traveler.alertReason || "No details specified"}`;
-  } else if (traveler.alertStatus === "WARNING") {
+  let systemDecision: Decision;
+  let decisionReason = "";
+  let manualReviewReason: "THRESHOLD_BREACH" | "ALERT_WARNING" | null = null;
+
+  if (alertAtVerification === "CRITICAL") {
     systemDecision = "PENDING_SUPERVISOR_REVIEW";
-    decisionReason = `Traveller alert status is WARNING: ${traveler.alertReason || "Requires manual review"}`;
+    decisionReason = `Traveller has a CRITICAL watchlist status and requires supervisor review. ${alertReasonAtVerification ?? ""}`.trim();
+    manualReviewReason = "ALERT_WARNING";
+  } else if (alertAtVerification === "WARNING") {
+    systemDecision = "PENDING_SUPERVISOR_REVIEW";
+    decisionReason = `Traveller has a WARNING watchlist status and requires supervisor review. ${alertReasonAtVerification ?? ""}`.trim();
+    manualReviewReason = "ALERT_WARNING";
   } else {
+    // Normal path — use biometric score + threshold
     systemDecision = decideVerification(scores.finalScore, threshold);
+    if (systemDecision === "PENDING_SUPERVISOR_REVIEW") {
+      decisionReason = `Biometric confidence score (${scores.finalScore}%) is within the supervisor review range.`;
+      manualReviewReason = "THRESHOLD_BREACH";
+    } else if (systemDecision === "REJECTED") {
+      decisionReason = `Biometric confidence score (${scores.finalScore}%) is below the acceptance threshold (${threshold}%).`;
+    } else {
+      decisionReason = `Biometric confidence score (${scores.finalScore}%) meets the acceptance threshold (${threshold}%).`;
+    }
   }
 
+  // 5. Persist verification log with historical snapshot of alert status
   const verificationLog = await prisma.verificationLog.create({
     data: {
       travelerId: traveler.id,
@@ -100,42 +123,43 @@ export async function runVerification(input: RunVerificationInput) {
       status: "COMPLETED",
       systemDecision,
       finalDecision: systemDecision,
-      direction: input.direction || "ENTRY",
-      checkpointId: input.checkpointId,
+      direction: input.direction ?? "ENTRY",
+      checkpointId: input.checkpointId ?? null,
       decisionReason,
-      alertStatusAtVerification: traveler.alertStatus,
-      alertReasonAtVerification: traveler.alertReason,
+      alertStatusAtVerification: alertAtVerification,
+      alertReasonAtVerification: alertReasonAtVerification,
     },
   });
 
-  if (systemDecision === "PENDING_SUPERVISOR_REVIEW") {
-    let reason = "THRESHOLD_BREACH";
-    if (traveler.alertStatus === "WARNING") {
-      reason = "ALERT_WARNING";
-    }
-
+  // 6. Auto-create ManualReviewRequest for supervisor-review decisions
+  if (systemDecision === "PENDING_SUPERVISOR_REVIEW" && manualReviewReason) {
     await prisma.manualReviewRequest.create({
       data: {
         travelerId: traveler.id,
         officerId: input.officerId,
         verificationId: verificationLog.id,
-        reason: reason as any,
-        officerNotes: decisionReason || "Automatic manual review trigger",
+        reason: manualReviewReason as any,
+        officerNotes: decisionReason,
         status: "PENDING",
       },
     });
 
-    const { notifyAllSupervisors } = require("./notificationService");
+    // 7. Notify all supervisors — include alert status context when relevant
+    const alertLabel =
+      alertAtVerification !== "NONE"
+        ? ` [Watchlist: ${alertAtVerification}]`
+        : "";
     await notifyAllSupervisors(
-      "Pending Manual Review Request",
-      `New review required for traveler ${traveler.fullName} (FAN: ${traveler.fan}) due to ${reason.replace(/_/g, " ")}.`,
-      "WARNING"
-    ).catch((err: any) => console.error("Failed to notify supervisors:", err));
+      "Manual Review Required",
+      `New review for ${traveler.fullName} (FAN: ${traveler.fan})${alertLabel}. Reason: ${decisionReason}`,
+      alertAtVerification !== "NONE" ? "WARNING" : "INFO"
+    ).catch((err) => console.error("Failed to notify supervisors:", err));
   }
 
-  return { verificationLog, traveler, ...scores };
+  return { verificationLog, traveler, ...scores, decisionReason };
 }
 
+/** Today's border-crossing dashboard statistics */
 export async function getDashboardStats() {
   const start = new Date();
   start.setHours(0, 0, 0, 0);
@@ -144,12 +168,12 @@ export async function getDashboardStats() {
 
   const logs = await prisma.verificationLog.findMany({
     where: { timestamp: { gte: start, lte: end } },
-    select: { finalDecision: true, direction: true }
+    select: { finalDecision: true, direction: true },
   });
 
   const reviews = await prisma.manualReviewRequest.findMany({
     where: { createdAt: { gte: start, lte: end } },
-    select: { id: true }
+    select: { id: true },
   });
 
   return {
@@ -162,28 +186,27 @@ export async function getDashboardStats() {
   };
 }
 
-/**
- * An officer's own verification history ("View their own verification activities").
- */
+/** Officer's own verification history with full context */
 export async function getVerificationsByOfficer(officerId: number) {
   return prisma.verificationLog.findMany({
     where: { officerId },
     orderBy: { timestamp: "desc" },
-    include: { traveler: { select: { fan: true, fullName: true } } },
+    include: {
+      traveler:   { select: { fan: true, fullName: true } },
+      checkpoint: { select: { id: true, name: true } },
+    },
   });
 }
 
-/**
- * All verification logs currently awaiting supervisor review.
- * Used by the override module (Phase 6).
- */
+/** All verification logs currently awaiting supervisor review */
 export async function getPendingReview() {
   return prisma.verificationLog.findMany({
     where: { finalDecision: "PENDING_SUPERVISOR_REVIEW" },
     orderBy: { timestamp: "asc" },
     include: {
-      traveler: { select: { fan: true, fullName: true } },
-      officer: { select: { id: true, name: true } },
+      traveler:   { select: { fan: true, fullName: true } },
+      officer:    { select: { id: true, name: true } },
+      checkpoint: { select: { id: true, name: true } },
     },
   });
 }

@@ -5,7 +5,7 @@ import type { PageKey } from './AppShell';
 export const allowedPages: Record<Role, PageKey[]> = {
   officer: ['dashboard', 'enrollment', 'verify', 'officer_manual_review', 'history'],
   supervisor: ['supervisor', 'pending', 'supervisor_manual_review', 'reports'],
-  admin: ['admin', 'users', 'audit', 'settings'],
+  admin: ['admin', 'users', 'audit', 'settings', 'reports'],
 };
 
 // Default landing page per role

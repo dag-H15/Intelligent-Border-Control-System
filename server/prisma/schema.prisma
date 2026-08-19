@@ -100,6 +100,7 @@ model Checkpoint {
   id               Int                @id @default(autoincrement())
   name             String             @unique
   location         String?
+  isActive         Boolean            @default(true) @map("is_active")
   createdAt        DateTime           @default(now()) @map("created_at")
   verificationLogs VerificationLog[]
 
@@ -165,13 +166,25 @@ model AuditLog {
 model Report {
   id              Int        @id @default(autoincrement())
   reportType      ReportType @map("report_type")
+  reportTitle     String     @map("report_title")
   startDate       DateTime   @map("start_date")
   endDate         DateTime   @map("end_date")
   generatedBy     Int        @map("generated_by")
   createdAt       DateTime   @default(now()) @map("created_at")
+  
+  // Store applied filters as JSON
+  filters         Json?      @default("{}")
+  
+  // Store summary statistics as JSON
+  summaryData     Json?      @map("summary_data")
+  
+  // Store record count
+  recordCount     Int        @default(0) @map("record_count")
+  
   generatedByUser User       @relation(fields: [generatedBy], references: [id])
 
   @@index([generatedBy])
+  @@index([createdAt])
   @@map("reports")
 }
 
@@ -197,6 +210,10 @@ enum ReportType {
   OVERRIDE_SUMMARY
   OFFICER_ACTIVITY
   MANUAL_REVIEW_SUMMARY
+  BORDER_CROSSING
+  BIOMETRIC_VERIFICATION
+  ENTRY_EXIT
+  CHECKPOINT_ACTIVITY
 }
 
 enum EnrollmentStatus {
@@ -268,5 +285,5 @@ enum BorderDirection {
 enum AlertStatus {
   NONE
   WARNING
-  RESTRICTED
+  CRITICAL
 }

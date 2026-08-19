@@ -219,6 +219,7 @@ export function VerifyTravelerPage() {
   };
 
   const [usedThreshold, setUsedThreshold] = useState(95);
+  const [decisionReason, setDecisionReason] = useState<string | undefined>(undefined);
 
   const handleVerify = async () => {
     if (!traveler || !fingerprintSource || !irisSource) return;
@@ -253,6 +254,7 @@ export function VerifyTravelerPage() {
       if (data.threshold !== undefined) {
         setUsedThreshold(data.threshold);
       }
+      setDecisionReason(data.decisionReason);
       setStage('result');
     } catch (err: unknown) {
       const msg =
@@ -381,7 +383,7 @@ export function VerifyTravelerPage() {
 
               {traveler.alertStatus && traveler.alertStatus !== 'NONE' && (
                 <div className={`flex items-start gap-3 rounded-xl border p-4 ${
-                  traveler.alertStatus === 'RESTRICTED'
+                  traveler.alertStatus === 'CRITICAL'
                     ? 'border-accent-red bg-accent-red-soft/40 text-accent-red'
                     : 'border-accent-amber bg-accent-amber-soft/40 text-accent-amber'
                 }`}>
@@ -574,7 +576,16 @@ export function VerifyTravelerPage() {
 
       {/* Section 6 — Result */}
       {stage === 'result' && (
-        <ResultPanel result={result} scores={scores} onReset={reset} usedThreshold={usedThreshold} />
+        <ResultPanel 
+          result={result} 
+          scores={scores} 
+          onReset={reset} 
+          usedThreshold={usedThreshold}
+          decisionReason={decisionReason}
+          traveler={traveler}
+          direction={direction}
+          checkpoint={checkpoints.find(c => c.id === Number(selectedCheckpoint))}
+        />
       )}
     </div>
   );
@@ -689,7 +700,25 @@ function UploadCard({
   );
 }
 
-function ResultPanel({ result, scores, onReset, usedThreshold }: { result: VerificationResult; scores: { fingerprint: number; iris: number; final: number }; onReset: () => void; usedThreshold: number }) {
+function ResultPanel({ 
+  result, 
+  scores, 
+  onReset, 
+  usedThreshold,
+  decisionReason,
+  traveler,
+  direction,
+  checkpoint
+}: { 
+  result: VerificationResult; 
+  scores: { fingerprint: number; iris: number; final: number }; 
+  onReset: () => void; 
+  usedThreshold: number;
+  decisionReason?: string;
+  traveler: Traveler | null;
+  direction: 'ENTRY' | 'EXIT';
+  checkpoint?: { id: number; name: string };
+}) {
   return (
     <div className="card p-6">
       <SectionHeader step={6} title="Verification Decision" subtitle="AI decision engine result" centered />
@@ -703,6 +732,9 @@ function ResultPanel({ result, scores, onReset, usedThreshold }: { result: Verif
             </div>
             <h3 className="mt-3 text-xl font-bold text-accent-green">VERIFIED</h3>
             <p className="text-sm text-green-700 mt-1">Identity confirmed · Confidence ≥ {usedThreshold}% · Automatic approval</p>
+            {decisionReason && (
+              <p className="text-xs text-green-600 mt-2 font-medium">Reason: {decisionReason}</p>
+            )}
           </div>
         )}
         {result === 'rejected' && (
@@ -712,6 +744,9 @@ function ResultPanel({ result, scores, onReset, usedThreshold }: { result: Verif
             </div>
             <h3 className="mt-3 text-xl font-bold text-accent-red">REJECTED</h3>
             <p className="text-sm text-red-700 mt-1">Biometric match below acceptance threshold ({usedThreshold}%) · Automatic rejection</p>
+            {decisionReason && (
+              <p className="text-xs text-red-600 mt-2 font-medium">Reason: {decisionReason}</p>
+            )}
           </div>
         )}
         {result === 'pending' && (
@@ -721,9 +756,42 @@ function ResultPanel({ result, scores, onReset, usedThreshold }: { result: Verif
             </div>
             <h3 className="mt-3 text-xl font-bold text-accent-amber">PENDING SUPERVISOR REVIEW</h3>
             <p className="text-sm text-amber-700 mt-1">Confidence in review range (85–{usedThreshold}%) · Awaiting Supervisor Decision</p>
+            {decisionReason && (
+              <p className="text-xs text-amber-600 mt-2 font-medium">Reason: {decisionReason}</p>
+            )}
           </div>
         )}
       </div>
+
+      {/* Verification context details */}
+      {traveler && (
+        <div className="mt-6 max-w-3xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-navy-50 rounded-lg border border-navy-200">
+          <div>
+            <div className="text-xs text-navy-500 font-medium">Traveler</div>
+            <div className="text-sm font-semibold text-navy-800 mt-0.5">{traveler.fullName}</div>
+          </div>
+          <div>
+            <div className="text-xs text-navy-500 font-medium">Alert Status</div>
+            <div className={`text-sm font-semibold mt-0.5 ${
+              traveler.alertStatus === 'CRITICAL' 
+                ? 'text-accent-red' 
+                : traveler.alertStatus === 'WARNING' 
+                ? 'text-accent-amber' 
+                : 'text-accent-green'
+            }`}>
+              {traveler.alertStatus || 'NONE'}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs text-navy-500 font-medium">Direction</div>
+            <div className="text-sm font-semibold text-navy-800 mt-0.5">{direction}</div>
+          </div>
+          <div>
+            <div className="text-xs text-navy-500 font-medium">Checkpoint</div>
+            <div className="text-sm font-semibold text-navy-800 mt-0.5">{checkpoint?.name || 'N/A'}</div>
+          </div>
+        </div>
+      )}
 
       {/* Scores */}
       <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4 max-w-3xl mx-auto">

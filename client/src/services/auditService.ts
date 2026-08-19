@@ -34,4 +34,9 @@ export const auditService = {
       severity: mapAuditLevel(entry.level),
     }));
   },
+
+  getLogDetail: async (id: number) => {
+    const { data } = await api.get(`/audit-logs/${id}`);
+    return data;
+  },
 };

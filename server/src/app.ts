@@ -17,7 +17,7 @@ const app = express();
 
 // --- Core middleware ---
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' })); // Increased limit for biometric images
 
 // --- Health check ---
 app.get("/health", (_req: Request, res: Response) => {

@@ -336,27 +336,65 @@ export function SupervisorManualReviewPage() {
                   </div>
                 </div>
 
-                {/* Attachments & Scores */}
+                {/* Verification Context & Scores */}
                 <div className="card p-5 lg:col-span-4 space-y-6">
                   {c.verification && (
-                    <div>
-                      <h3 className="text-sm font-semibold text-navy-800 mb-3">AI Biometric Match Scores</h3>
-                      <div className="space-y-2.5 bg-navy-50/50 rounded-xl p-3.5 border border-navy-100">
-                        <div className="flex justify-between text-xs">
-                          <span className="text-navy-500 uppercase tracking-wider font-semibold">Fingerprint Score</span>
-                          <span className="font-bold text-navy-800">{c.verification.fingerprintScore}%</span>
-                        </div>
-                        <div className="flex justify-between text-xs">
-                          <span className="text-navy-500 uppercase tracking-wider font-semibold">Iris Score</span>
-                          <span className="font-bold text-navy-800">{c.verification.irisScore}%</span>
-                        </div>
-                        <div className="h-px bg-navy-200 my-1" />
-                        <div className="flex justify-between text-xs">
-                          <span className="text-navy-800 font-bold uppercase tracking-wider">Overall Score</span>
-                          <span className="font-bold text-accent-amber">{c.verification.finalScore}%</span>
+                    <>
+                      <div>
+                        <h3 className="text-sm font-semibold text-navy-800 mb-3">Verification Context</h3>
+                        <div className="space-y-2.5 bg-navy-50/50 rounded-xl p-3.5 border border-navy-100">
+                          <div className="flex justify-between text-xs">
+                            <span className="text-navy-500 uppercase tracking-wider font-semibold">Direction</span>
+                            <span className="font-bold text-navy-800">{c.verification.direction || '—'}</span>
+                          </div>
+                          <div className="flex justify-between text-xs">
+                            <span className="text-navy-500 uppercase tracking-wider font-semibold">Checkpoint</span>
+                            <span className="font-bold text-navy-800">{c.verification.checkpoint?.name || '—'}</span>
+                          </div>
+                          <div className="flex justify-between text-xs">
+                            <span className="text-navy-500 uppercase tracking-wider font-semibold">Alert Status</span>
+                            <span className={`font-bold ${
+                              c.verification.alertStatusAtVerification === 'CRITICAL' 
+                                ? 'text-accent-red' 
+                                : c.verification.alertStatusAtVerification === 'WARNING' 
+                                ? 'text-accent-amber' 
+                                : 'text-accent-green'
+                            }`}>
+                              {c.verification.alertStatusAtVerification || 'NONE'}
+                            </span>
+                          </div>
+                          {c.verification.alertReasonAtVerification && (
+                            <div className="flex flex-col gap-1 text-xs pt-1 border-t border-navy-200">
+                              <span className="text-navy-500 uppercase tracking-wider font-semibold">Alert Reason</span>
+                              <span className="font-medium text-navy-700 text-[11px]">{c.verification.alertReasonAtVerification}</span>
+                            </div>
+                          )}
+                          <div className="flex justify-between text-xs pt-1 border-t border-navy-200">
+                            <span className="text-navy-500 uppercase tracking-wider font-semibold">Threshold Used</span>
+                            <span className="font-bold text-navy-800">{c.verification.threshold || 95}%</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
+
+                      <div>
+                        <h3 className="text-sm font-semibold text-navy-800 mb-3">AI Biometric Match Scores</h3>
+                        <div className="space-y-2.5 bg-navy-50/50 rounded-xl p-3.5 border border-navy-100">
+                          <div className="flex justify-between text-xs">
+                            <span className="text-navy-500 uppercase tracking-wider font-semibold">Fingerprint Score</span>
+                            <span className="font-bold text-navy-800">{c.verification.fingerprintScore}%</span>
+                          </div>
+                          <div className="flex justify-between text-xs">
+                            <span className="text-navy-500 uppercase tracking-wider font-semibold">Iris Score</span>
+                            <span className="font-bold text-navy-800">{c.verification.irisScore}%</span>
+                          </div>
+                          <div className="h-px bg-navy-200 my-1" />
+                          <div className="flex justify-between text-xs">
+                            <span className="text-navy-800 font-bold uppercase tracking-wider">Overall Score</span>
+                            <span className="font-bold text-accent-amber">{c.verification.finalScore}%</span>
+                          </div>
+                        </div>
+                      </div>
+                    </>
                   )}
 
                   <div>

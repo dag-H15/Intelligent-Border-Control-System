@@ -121,4 +121,71 @@ export const reportService = {
     const { data } = await api.get<{ officers: OfficerOption[] }>('/reports/officers');
     return data.officers;
   },
+
+  /** New comprehensive API endpoints */
+
+  getDetailedRecords: async (filters: {
+    startDate: string;
+    endDate: string;
+    officerId?: number;
+    checkpointId?: number;
+    direction?: 'ENTRY' | 'EXIT';
+    decision?: 'VERIFIED' | 'PENDING_SUPERVISOR_REVIEW' | 'REJECTED';
+    alertStatus?: 'NONE' | 'WARNING' | 'CRITICAL';
+    page?: number;
+    limit?: number;
+  }) => {
+    const { data } = await api.post('/reports/detailed-records', filters);
+    return data;
+  },
+
+  getStatistics: async (filters: {
+    startDate: string;
+    endDate: string;
+    officerId?: number;
+    checkpointId?: number;
+    direction?: 'ENTRY' | 'EXIT';
+    decision?: 'VERIFIED' | 'PENDING_SUPERVISOR_REVIEW' | 'REJECTED';
+    alertStatus?: 'NONE' | 'WARNING' | 'CRITICAL';
+  }) => {
+    const { data } = await api.post('/reports/statistics', filters);
+    return data;
+  },
+
+  getChartData: async (filters: {
+    startDate: string;
+    endDate: string;
+    officerId?: number;
+    checkpointId?: number;
+    direction?: 'ENTRY' | 'EXIT';
+    alertStatus?: 'NONE' | 'WARNING' | 'CRITICAL';
+  }) => {
+    const { data } = await api.post('/reports/chart-data', filters);
+    return data;
+  },
+
+  getVerificationDetail: async (id: number) => {
+    const { data } = await api.get(`/reports/verification-detail/${id}`);
+    return data;
+  },
+
+  /** Save a generated report with metadata */
+  saveGeneratedReport: async (reportData: {
+    reportType: string;
+    reportTitle: string;
+    startDate: string;
+    endDate: string;
+    filters: any;
+    summaryData: any;
+    recordCount: number;
+  }) => {
+    const { data } = await api.post('/reports/save', reportData);
+    return data.report;
+  },
+
+  /** Get a specific generated report by ID */
+  getReportById: async (id: number) => {
+    const { data } = await api.get(`/reports/${id}`);
+    return data.report;
+  },
 };

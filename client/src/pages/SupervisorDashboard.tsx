@@ -85,11 +85,15 @@ export function SupervisorDashboard({ onGoPending }: Props) {
         ) : (
           <div className="divide-y divide-navy-100">
             {pendingCases.map((c) => (
-              <div key={c.id} className="px-5 py-3.5 flex items-center gap-4 hover:bg-navy-50/60 transition-colors">
+              <button
+                key={c.id}
+                onClick={onGoPending}
+                className="w-full px-5 py-3.5 flex items-center gap-4 hover:bg-navy-50/60 transition-colors cursor-pointer"
+              >
                 <div className="h-10 w-10 rounded-lg border border-navy-200 bg-navy-50 flex items-center justify-center text-navy-400">
                   <ClipboardCheck size={18} />
                 </div>
-                <div className="flex-1 min-w-0">
+                <div className="flex-1 min-w-0 text-left">
                   <div className="text-sm font-medium text-navy-800 truncate">{c.travelerName}</div>
                   <div className="text-xs text-navy-400 font-mono">{c.fiydaId} · {c.nationality}</div>
                 </div>
@@ -98,7 +102,7 @@ export function SupervisorDashboard({ onGoPending }: Props) {
                   <div className="text-[11px] text-navy-400">Confidence</div>
                 </div>
                 <StatusBadge status="pending" />
-              </div>
+              </button>
             ))}
           </div>
         )}

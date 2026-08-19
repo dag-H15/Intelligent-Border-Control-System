@@ -54,7 +54,15 @@ export async function generateVerificationSummary({ startDate, endDate, generate
   };
 
   const report = await prisma.report.create({
-    data: { reportType: "VERIFICATION_SUMMARY", startDate: start, endDate: end, generatedBy },
+    data: {
+      reportType: "VERIFICATION_SUMMARY",
+      reportTitle: "Verification Summary Report",
+      startDate: start,
+      endDate: end,
+      generatedBy,
+      recordCount: summary.total,
+      summaryData: summary,
+    },
   });
 
   return { report, summary };
@@ -80,7 +88,15 @@ export async function generateOverrideSummary({ startDate, endDate, generatedBy 
   };
 
   const report = await prisma.report.create({
-    data: { reportType: "OVERRIDE_SUMMARY", startDate: start, endDate: end, generatedBy },
+    data: {
+      reportType: "OVERRIDE_SUMMARY",
+      reportTitle: "Override Summary Report",
+      startDate: start,
+      endDate: end,
+      generatedBy,
+      recordCount: summary.total,
+      summaryData: summary,
+    },
   });
 
   return { report, summary };
@@ -123,11 +139,21 @@ export async function generateOfficerActivity({
     byOfficer.set(log.officerId, entry);
   }
 
+  const summaryArray = Array.from(byOfficer.values());
+
   const report = await prisma.report.create({
-    data: { reportType: "OFFICER_ACTIVITY", startDate: start, endDate: end, generatedBy },
+    data: {
+      reportType: "OFFICER_ACTIVITY",
+      reportTitle: "Officer Activity Report",
+      startDate: start,
+      endDate: end,
+      generatedBy,
+      recordCount: summaryArray.length,
+      summaryData: { officers: summaryArray },
+    },
   });
 
-  return { report, summary: Array.from(byOfficer.values()) };
+  return { report, summary: summaryArray };
 }
 
 /**
@@ -164,7 +190,15 @@ export async function generateManualReviewSummary({ startDate, endDate, generate
   }));
 
   const report = await prisma.report.create({
-    data: { reportType: "MANUAL_REVIEW_SUMMARY", startDate: start, endDate: end, generatedBy },
+    data: {
+      reportType: "MANUAL_REVIEW_SUMMARY",
+      reportTitle: "Manual Review Summary Report",
+      startDate: start,
+      endDate: end,
+      generatedBy,
+      recordCount: summary.length,
+      summaryData: { reviews: summary },
+    },
   });
 
   return { report, summary };
@@ -185,4 +219,374 @@ export async function listOfficers() {
     select:  { id: true, name: true },
     orderBy: { name: "asc" },
   });
+}
+
+/**
+ * Comprehensive filter interface for detailed verification records
+ */
+interface VerificationFilters {
+  startDate: string | Date;
+  endDate: string | Date;
+  officerId?: number;
+  checkpointId?: number;
+  direction?: "ENTRY" | "EXIT";
+  decision?: "VERIFIED" | "PENDING_SUPERVISOR_REVIEW" | "REJECTED";
+  alertStatus?: "NONE" | "WARNING" | "CRITICAL";
+  page?: number;
+  limit?: number;
+}
+
+/**
+ * Get detailed verification records with comprehensive filters
+ * Returns paginated results with full traveler, officer, checkpoint data
+ */
+export async function getDetailedVerificationRecords(filters: VerificationFilters) {
+  const start = toStartOfDay(filters.startDate);
+  const end = toEndOfDay(filters.endDate);
+  const page = filters.page ?? 1;
+  const limit = filters.limit ?? 50;
+  const skip = (page - 1) * limit;
+
+  const whereClause: any = {
+    timestamp: { gte: start, lte: end },
+  };
+
+  if (filters.officerId !== undefined) whereClause.officerId = filters.officerId;
+  if (filters.checkpointId !== undefined) whereClause.checkpointId = filters.checkpointId;
+  if (filters.direction !== undefined) whereClause.direction = filters.direction;
+  if (filters.decision !== undefined) whereClause.finalDecision = filters.decision;
+  if (filters.alertStatus !== undefined) whereClause.alertStatusAtVerification = filters.alertStatus;
+
+  const [records, total] = await Promise.all([
+    prisma.verificationLog.findMany({
+      where: whereClause,
+      orderBy: { timestamp: "desc" },
+      skip,
+      take: limit,
+      include: {
+        traveler: {
+          select: {
+            id: true,
+            fan: true,
+            fullName: true,
+            nationality: true,
+            dateOfBirth: true,
+            gender: true,
+            photo: true,
+            enrollmentStatus: true,
+          },
+        },
+        officer: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+          },
+        },
+        checkpoint: {
+          select: {
+            id: true,
+            name: true,
+            location: true,
+          },
+        },
+        manualReviewRequest: {
+          select: {
+            id: true,
+            reason: true,
+            status: true,
+            decision: true,
+            supervisorNotes: true,
+            supervisor: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+            createdAt: true,
+            updatedAt: true,
+          },
+        },
+      },
+    }),
+    prisma.verificationLog.count({ where: whereClause }),
+  ]);
+
+  return {
+    records,
+    pagination: {
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    },
+  };
+}
+
+/**
+ * Get comprehensive statistics with filters for summary cards
+ */
+export async function getVerificationStatistics(filters: Omit<VerificationFilters, "page" | "limit">) {
+  const start = toStartOfDay(filters.startDate);
+  const end = toEndOfDay(filters.endDate);
+
+  const whereClause: any = {
+    timestamp: { gte: start, lte: end },
+  };
+
+  if (filters.officerId !== undefined) whereClause.officerId = filters.officerId;
+  if (filters.checkpointId !== undefined) whereClause.checkpointId = filters.checkpointId;
+  if (filters.direction !== undefined) whereClause.direction = filters.direction;
+  if (filters.decision !== undefined) whereClause.finalDecision = filters.decision;
+  if (filters.alertStatus !== undefined) whereClause.alertStatusAtVerification = filters.alertStatus;
+
+  const logs = await prisma.verificationLog.findMany({
+    where: whereClause,
+    select: {
+      finalDecision: true,
+      direction: true,
+      alertStatusAtVerification: true,
+      manualReviewRequest: {
+        select: { status: true },
+      },
+    },
+  });
+
+  const stats = {
+    totalCrossings: logs.length,
+    verified: logs.filter((l) => l.finalDecision === "VERIFIED").length,
+    rejected: logs.filter((l) => l.finalDecision === "REJECTED").length,
+    pendingReview: logs.filter((l) => l.finalDecision === "PENDING_SUPERVISOR_REVIEW").length,
+    entries: logs.filter((l) => l.direction === "ENTRY").length,
+    exits: logs.filter((l) => l.direction === "EXIT").length,
+    manualReviews: logs.filter((l) => l.manualReviewRequest !== null).length,
+    watchlistWarnings: logs.filter((l) => l.alertStatusAtVerification === "WARNING").length,
+    watchlistCritical: logs.filter((l) => l.alertStatusAtVerification === "CRITICAL").length,
+  };
+
+  return stats;
+}
+
+/**
+ * Get chart data for visualizations
+ */
+export async function getVerificationChartData(filters: Omit<VerificationFilters, "page" | "limit">) {
+  const start = toStartOfDay(filters.startDate);
+  const end = toEndOfDay(filters.endDate);
+
+  const whereClause: any = {
+    timestamp: { gte: start, lte: end },
+  };
+
+  if (filters.officerId !== undefined) whereClause.officerId = filters.officerId;
+  if (filters.checkpointId !== undefined) whereClause.checkpointId = filters.checkpointId;
+  if (filters.direction !== undefined) whereClause.direction = filters.direction;
+  if (filters.alertStatus !== undefined) whereClause.alertStatusAtVerification = filters.alertStatus;
+
+  const logs = await prisma.verificationLog.findMany({
+    where: whereClause,
+    select: {
+      finalDecision: true,
+      direction: true,
+      timestamp: true,
+      checkpoint: {
+        select: { name: true },
+      },
+    },
+  });
+
+  // Decision breakdown
+  const decisions = {
+    verified: logs.filter((l) => l.finalDecision === "VERIFIED").length,
+    pending: logs.filter((l) => l.finalDecision === "PENDING_SUPERVISOR_REVIEW").length,
+    rejected: logs.filter((l) => l.finalDecision === "REJECTED").length,
+  };
+
+  // Entry vs Exit
+  const directionBreakdown = {
+    entry: logs.filter((l) => l.direction === "ENTRY").length,
+    exit: logs.filter((l) => l.direction === "EXIT").length,
+  };
+
+  // Crossings by checkpoint
+  const checkpointMap = new Map<string, number>();
+  logs.forEach((log) => {
+    const name = log.checkpoint?.name ?? "Unknown";
+    checkpointMap.set(name, (checkpointMap.get(name) ?? 0) + 1);
+  });
+  const byCheckpoint = Array.from(checkpointMap.entries())
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count);
+
+  // Crossings over time (group by day)
+  const dailyMap = new Map<string, number>();
+  logs.forEach((log) => {
+    const day = log.timestamp.toISOString().slice(0, 10);
+    dailyMap.set(day, (dailyMap.get(day) ?? 0) + 1);
+  });
+  const overTime = Array.from(dailyMap.entries())
+    .map(([date, count]) => ({ date, count }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  return {
+    decisions,
+    directionBreakdown,
+    byCheckpoint,
+    overTime,
+  };
+}
+
+/**
+ * Get complete verification detail for a single verification ID
+ * Used when user clicks a row in the report table
+ */
+export async function getVerificationDetail(verificationId: number) {
+  const verification = await prisma.verificationLog.findUnique({
+    where: { id: verificationId },
+    include: {
+      traveler: {
+        select: {
+          id: true,
+          fan: true,
+          fullName: true,
+          dateOfBirth: true,
+          gender: true,
+          nationality: true,
+          photo: true,
+          enrollmentStatus: true,
+          alertStatus: true,
+          alertReason: true,
+        },
+      },
+      officer: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+        },
+      },
+      checkpoint: {
+        select: {
+          id: true,
+          name: true,
+          location: true,
+        },
+      },
+      manualReviewRequest: {
+        select: {
+          id: true,
+          reason: true,
+          officerNotes: true,
+          status: true,
+          decision: true,
+          supervisorNotes: true,
+          createdAt: true,
+          updatedAt: true,
+          supervisor: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+        },
+      },
+      overrideRecord: {
+        select: {
+          id: true,
+          previousDecision: true,
+          newDecision: true,
+          reason: true,
+          timestamp: true,
+          supervisor: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!verification) {
+    throw new Error("Verification not found");
+  }
+
+  return verification;
+}
+
+
+/**
+ * Save a generated report with full metadata for history viewing
+ */
+export async function saveGeneratedReport({
+  reportType,
+  reportTitle,
+  startDate,
+  endDate,
+  generatedBy,
+  filters,
+  summaryData,
+  recordCount,
+}: {
+  reportType: "BORDER_CROSSING" | "MANUAL_REVIEW_SUMMARY" | "BIOMETRIC_VERIFICATION" | "ENTRY_EXIT" | "OFFICER_ACTIVITY" | "CHECKPOINT_ACTIVITY";
+  reportTitle: string;
+  startDate: string | Date;
+  endDate: string | Date;
+  generatedBy: number;
+  filters: any;
+  summaryData: any;
+  recordCount: number;
+}) {
+  const start = toStartOfDay(startDate);
+  const end = toEndOfDay(endDate);
+
+  const report = await prisma.report.create({
+    data: {
+      reportType,
+      reportTitle,
+      startDate: start,
+      endDate: end,
+      generatedBy,
+      filters: filters || {},
+      summaryData: summaryData || {},
+      recordCount,
+    },
+    include: {
+      generatedByUser: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+        },
+      },
+    },
+  });
+
+  return report;
+}
+
+/**
+ * Get a specific generated report by ID with full details
+ */
+export async function getGeneratedReportById(reportId: number) {
+  const report = await prisma.report.findUnique({
+    where: { id: reportId },
+    include: {
+      generatedByUser: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+        },
+      },
+    },
+  });
+
+  return report;
 }

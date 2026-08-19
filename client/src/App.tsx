@@ -11,10 +11,10 @@ import { HistoryPage } from './pages/HistoryPage';
 import { SupervisorDashboard } from './pages/SupervisorDashboard';
 import { PendingReviewPage } from './pages/PendingReviewPage';
 import { SupervisorManualReviewPage } from './pages/SupervisorManualReviewPage';
-import { ReportsDashboard } from './pages/ReportsDashboard';
+import { ProfessionalReportsDashboard } from './pages/ProfessionalReportsDashboard';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { UserManagementPage } from './pages/UserManagementPage';
-import { AuditLogsPage } from './pages/AuditLogsPage';
+import { ProfessionalAuditLogsPage } from './pages/ProfessionalAuditLogsPage';
 import { SystemSettingsPage } from './pages/SystemSettingsPage';
 
 function AuthenticatedApp() {
@@ -56,7 +56,7 @@ function AuthenticatedApp() {
       {role === 'supervisor' && safePage === 'supervisor' && <SupervisorDashboard onGoPending={() => setPage('pending')} />}
       {role === 'supervisor' && safePage === 'pending' && <PendingReviewPage />}
       {role === 'supervisor' && safePage === 'supervisor_manual_review' && <SupervisorManualReviewPage />}
-      {role === 'supervisor' && safePage === 'reports' && <ReportsDashboard />}
+      {role === 'supervisor' && safePage === 'reports' && <ProfessionalReportsDashboard />}
 
       {role === 'admin' && safePage === 'admin' && (
         <AdminDashboard
@@ -66,7 +66,8 @@ function AuthenticatedApp() {
         />
       )}
       {role === 'admin' && safePage === 'users' && <UserManagementPage />}
-      {role === 'admin' && safePage === 'audit' && <AuditLogsPage />}
+      {role === 'admin' && safePage === 'reports' && <ProfessionalReportsDashboard />}
+      {role === 'admin' && safePage === 'audit' && <ProfessionalAuditLogsPage />}
       {role === 'admin' && safePage === 'settings' && <SystemSettingsPage />}
     </AppShell>
   );

@@ -41,6 +41,7 @@ const navByRole: Record<Role, NavItem[]> = {
   admin: [
     { key: 'admin', label: 'Admin Dashboard', icon: LayoutDashboard },
     { key: 'users', label: 'User Management', icon: Users },
+    { key: 'reports', label: 'Reports', icon: FileBarChart },
     { key: 'audit', label: 'Audit Logs', icon: ScrollText },
     { key: 'settings', label: 'System Settings', icon: Settings },
   ],
@@ -184,9 +185,14 @@ export function AppShell({ role, userName, active, onNavigate, onLogout, childre
                         <div className="px-4 py-6 text-center text-xs text-navy-400">No notifications</div>
                       ) : (
                         notifications.map((n) => (
-                          <div
+                          <button
                             key={n.id}
-                            className={`p-3 text-left transition-colors hover:bg-navy-50/50 flex gap-2.5 items-start ${
+                            onClick={() => {
+                              handleMarkRead(n.id);
+                              setNotifOpen(false);
+                              onNavigate('pending');
+                            }}
+                            className={`w-full p-3 text-left transition-colors hover:bg-navy-50/50 flex gap-2.5 items-start ${
                               !n.isRead ? 'bg-navy-50/20' : ''
                             }`}
                           >
@@ -195,21 +201,13 @@ export function AppShell({ role, userName, active, onNavigate, onLogout, childre
                                 <span className={`text-xs font-bold ${!n.isRead ? 'text-navy-800' : 'text-navy-500'}`}>
                                   {n.title}
                                 </span>
-                                {!n.isRead && (
-                                  <button
-                                    onClick={() => handleMarkRead(n.id)}
-                                    className="text-[9px] font-bold text-accent-blue hover:underline shrink-0"
-                                  >
-                                    Mark read
-                                  </button>
-                                )}
                               </div>
                               <p className="text-[11px] text-navy-500 mt-0.5 leading-tight">{n.message}</p>
                               <span className="text-[9px] text-navy-400 mt-1 block">
                                 {new Date(n.createdAt).toLocaleTimeString()}
                               </span>
                             </div>
-                          </div>
+                          </button>
                         ))
                       )}
                     </div>
