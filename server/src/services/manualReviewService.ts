@@ -63,6 +63,7 @@ const REVIEW_INCLUDE = {
       finalScore: true,
       threshold: true,
       finalDecision: true,
+      decisionReason: true,
       direction: true,
       checkpointId: true,
       alertStatusAtVerification: true,

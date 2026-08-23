@@ -1,26 +1,30 @@
 import { useState, useEffect } from 'react';
-import { auditService, type AuditEntry } from '../services/auditService';
+import { auditService, formatAuditTimestamp, type AuditEvent } from '../services/auditService';
 import { Search, Filter, Info, ShieldAlert, AlertTriangle, Calendar, Loader2, AlertCircle, LogIn, Gavel, UserPlus, Fingerprint } from 'lucide-react';
 
 export function AuditLogsPage() {
-  const [logs, setLogs] = useState<AuditEntry[]>([]);
+  const [logs, setLogs] = useState<AuditEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
-  const [severity, setSeverity] = useState<'all' | 'info' | 'warning' | 'critical'>('all');
+  const [severity, setSeverity] = useState<'all' | 'INFO' | 'WARNING' | 'CRITICAL'>('all');
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | '7d' | '30d'>('all');
 
   useEffect(() => {
     auditService
-      .getLogs()
-      .then((data) => { setLogs(data); setLoading(false); })
+      .getLogs({ limit: 100 })
+      .then((data) => { setLogs(data.auditLogs); setLoading(false); })
       .catch(() => { setError('Failed to load audit logs.'); setLoading(false); });
   }, []);
 
   const filtered = logs.filter((l) => {
-    const mq = l.action.toLowerCase().includes(query.toLowerCase()) || l.user.toLowerCase().includes(query.toLowerCase()) || l.ip.includes(query);
-    const ms = severity === 'all' || l.severity === severity;
-    const recDate = new Date(l.time);
+    const mq =
+      !query ||
+      l.action.toLowerCase().includes(query.toLowerCase()) ||
+      (l.user?.name || 'System').toLowerCase().includes(query.toLowerCase()) ||
+      l.ipAddress.includes(query);
+    const ms = severity === 'all' || l.level === severity;
+    const recDate = new Date(l.timestamp);
     const now = new Date();
     let md = true;
     if (dateFilter === 'today') md = (now.getTime() - recDate.getTime()) < 24 * 3600000;
@@ -31,7 +35,7 @@ export function AuditLogsPage() {
 
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
-  const todaysLogs = logs.filter((entry) => new Date(entry.time) >= startOfToday);
+  const todaysLogs = logs.filter((entry) => new Date(entry.timestamp) >= startOfToday);
 
   return (
     <div className="space-y-6">
@@ -50,13 +54,13 @@ export function AuditLogsPage() {
             <Filter size={15} className="text-navy-400" />
             <select
               value={severity}
-              onChange={(e) => setSeverity(e.target.value as 'all' | 'info' | 'warning' | 'critical')}
+              onChange={(e) => setSeverity(e.target.value as 'all' | 'INFO' | 'WARNING' | 'CRITICAL')}
               className="rounded-lg border border-navy-200 bg-white px-3 py-2 text-sm text-navy-600 focus:outline-none focus:ring-2 focus:ring-navy-200"
             >
               <option value="all">All Events</option>
-              <option value="info">INFO</option>
-              <option value="warning">WARNING</option>
-              <option value="critical">CRITICAL</option>
+              <option value="INFO">INFO</option>
+              <option value="WARNING">WARNING</option>
+              <option value="CRITICAL">CRITICAL</option>
             </select>
           </div>
           <div className="flex items-center gap-2">
@@ -78,10 +82,10 @@ export function AuditLogsPage() {
       {/* Severity summary */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
         <SevCard label="Audit Events Today" count={todaysLogs.length} icon={Info} tone="navy" />
-        <SevCard label="Logins Today" count={todaysLogs.filter((l) => /login/i.test(l.action)).length} icon={LogIn} tone="amber" />
+        <SevCard label="Logins Today" count={todaysLogs.filter((l) => /logged in/i.test(l.action)).length} icon={LogIn} tone="amber" />
         <SevCard label="Overrides Today" count={todaysLogs.filter((l) => /override/i.test(l.action)).length} icon={Gavel} tone="red" />
-        <SevCard label="Enrollments Today" count={todaysLogs.filter((l) => /enrollment/i.test(l.action)).length} icon={UserPlus} tone="navy" />
-        <SevCard label="Verifications Today" count={todaysLogs.filter((l) => /verification/i.test(l.action)).length} icon={Fingerprint} tone="amber" />
+        <SevCard label="Enrollments Today" count={todaysLogs.filter((l) => /enrolled|enrollment started/i.test(l.action)).length} icon={UserPlus} tone="navy" />
+        <SevCard label="Verifications Today" count={todaysLogs.filter((l) => /verification completed|verification attempt/i.test(l.action)).length} icon={Fingerprint} tone="amber" />
       </div>
 
       {/* Table */}
@@ -114,15 +118,15 @@ export function AuditLogsPage() {
                   <tr key={l.id} className="hover:bg-navy-50/60 transition-colors">
                     <td className="px-5 py-3 font-mono text-xs text-navy-600">{l.id}</td>
                     <td className="px-5 py-3">
-                      <div className="font-medium text-navy-800">{l.user}</div>
+                      <div className="font-medium text-navy-800">{l.user?.name ?? 'System'}</div>
                     </td>
                     <td className="px-5 py-3 text-navy-600">{l.action}</td>
-                    <td className="px-5 py-3 text-navy-600 whitespace-nowrap font-mono text-xs">{l.time}</td>
-                    <td className="px-5 py-3 font-mono text-xs text-navy-600">{l.ip}</td>
+                    <td className="px-5 py-3 text-navy-600 whitespace-nowrap font-mono text-xs">{formatAuditTimestamp(l.timestamp)}</td>
+                    <td className="px-5 py-3 font-mono text-xs text-navy-600">{l.ipAddress}</td>
                     <td className="px-5 py-3">
-                      {l.severity === 'critical' ? (
+                      {l.level === 'CRITICAL' ? (
                         <span className="badge-rejected"><ShieldAlert size={12} /> CRITICAL</span>
-                      ) : l.severity === 'warning' ? (
+                      ) : l.level === 'WARNING' ? (
                         <span className="badge-pending"><AlertTriangle size={12} /> WARNING</span>
                       ) : (
                         <span className="badge-neutral"><Info size={12} /> INFO</span>

@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { listPendingReview, decideOverride, getOverridesBySupervisor } from "../services/overrideService";
-import { createAuditLog, getClientIp } from "../services/auditService";
+import { logAuditEvent, getClientIp, AuditResult } from "../services/auditService";
 import { AuditLevel, Decision } from "../../generated/prisma";
 
 const VALID_OVERRIDE_DECISIONS: Decision[] = ["VERIFIED", "REJECTED"];
@@ -61,22 +61,37 @@ export async function decide(req: Request, res: Response, next: NextFunction) {
       reason,
     });
 
-    await createAuditLog(
-      req.user!.userId,
-      `Override on verification #${verificationId} -> ${decision} (reason: ${reason})`,
-      getClientIp(req),
-      AuditLevel.WARNING
-    );
+    await logAuditEvent({
+      userId: req.user!.userId,
+      action: decision === "VERIFIED" ? "Supervisor override approved" : "Supervisor override rejected",
+      ipAddress: getClientIp(req),
+      severity: AuditLevel.WARNING,
+      result: decision === "VERIFIED" ? AuditResult.VERIFIED : AuditResult.REJECTED,
+      resourceType: "Verification",
+      resourceId: String(verificationId),
+      description: `Supervisor override on verification #${verificationId}: ${result.overrideRecord.previousDecision} → ${decision}. Reason: ${reason}`,
+      metadata: {
+        verificationId,
+        travelerId: result.verificationLog.travelerId ?? null,
+        previousDecision: result.overrideRecord.previousDecision,
+        newDecision: decision,
+        reason,
+      },
+    });
 
     return res.status(200).json(result);
   } catch (err) {
     if ((err as any)?.statusCode === 404 || (err as any)?.statusCode === 409) {
-      await createAuditLog(
-        req.user!.userId,
-        `Invalid override attempt for verification #${req.params.verificationId}: ${(err as Error).message}`,
-        getClientIp(req),
-        AuditLevel.WARNING
-      );
+      await logAuditEvent({
+        userId: req.user!.userId,
+        action: "Invalid override attempt",
+        ipAddress: getClientIp(req),
+        severity: AuditLevel.WARNING,
+        result: AuditResult.FAILED,
+        resourceType: "Verification",
+        resourceId: String(req.params.verificationId ?? ""),
+        description: `Override rejected for verification #${req.params.verificationId}: ${(err as Error).message}`,
+      });
     }
     next(err);
   }

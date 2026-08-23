@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { AuditLevel, Role } from "../../generated/prisma";
 import prisma from "../config/prisma";
-import { createAuditLog, getClientIp } from "../services/auditService";
+import { logAuditEvent, getClientIp, AuditResult } from "../services/auditService";
 import { createUser, deleteUser, listUsers, resetUserPassword, unlockUser, updateUser } from "../services/userManagementService";
 
 const VALID_ROLES: Role[] = ["OFFICER", "SUPERVISOR", "ADMIN"];
@@ -31,7 +31,17 @@ export async function createNewUser(req: Request, res: Response, next: NextFunct
     }
 
     const user = await createUser({ name, email, password, role });
-    await createAuditLog(req.user!.userId, `Admin created user ${email} (${role})`, getClientIp(req), AuditLevel.INFO);
+    await logAuditEvent({
+      userId: req.user!.userId,
+      action: "User account created",
+      ipAddress: getClientIp(req),
+      severity: AuditLevel.INFO,
+      result: AuditResult.SUCCESS,
+      resourceType: "User",
+      resourceId: String(user.id),
+      description: `Admin created ${role} account for ${user.name} (${email})`,
+      metadata: { name: user.name, email: user.email, role },
+    });
     return res.status(201).json({ user });
   } catch (err) {
     next(err);
@@ -52,11 +62,33 @@ export async function updateExistingUser(req: Request, res: Response, next: Next
 
     const before = await prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true, role: true } });
     const user = await updateUser(userId, { name, email, role });
-    const actionParts: string[] = [`Admin updated user ${before?.email ?? user.email}`];
-    if (name && name !== before?.name) actionParts.push(`name -> ${name}`);
-    if (email && email !== before?.email) actionParts.push(`email -> ${email}`);
-    if (role && role !== before?.role) actionParts.push(`role -> ${role}`);
-    await createAuditLog(req.user!.userId, actionParts.join("; "), getClientIp(req), AuditLevel.INFO);
+
+    const roleChanged = role !== undefined && before?.role !== undefined && role !== before.role;
+
+    // Build previous → new change list for the audit detail view
+    const changes: Array<{ field: string; previous: unknown; new: unknown }> = [];
+    if (name !== undefined && name !== before?.name) changes.push({ field: "Name", previous: before?.name ?? "", new: name });
+    if (email !== undefined && email !== before?.email) changes.push({ field: "Email", previous: before?.email ?? "", new: email });
+    if (roleChanged) changes.push({ field: "Role", previous: before!.role, new: role });
+
+    await logAuditEvent({
+      userId: req.user!.userId,
+      action: roleChanged ? "User role changed" : "User account updated",
+      ipAddress: getClientIp(req),
+      severity: roleChanged ? AuditLevel.WARNING : AuditLevel.INFO,
+      result: AuditResult.SUCCESS,
+      resourceType: "User",
+      resourceId: String(userId),
+      description:
+        changes.length > 0
+          ? `Admin updated ${before?.email ?? user.email}: ${changes.map((c) => `${c.field} (${String(c.previous)} → ${String(c.new)})`).join(", ")}`
+          : `Admin updated user ${user.email} without value changes`,
+      metadata: {
+        affectedUserId: userId,
+        affectedUserEmail: before?.email ?? user.email,
+        changes,
+      },
+    });
     return res.status(200).json({ user });
   } catch (err) {
     next(err);
@@ -76,7 +108,17 @@ export async function resetPassword(req: Request, res: Response, next: NextFunct
     }
 
     const user = await resetUserPassword(userId, password);
-    await createAuditLog(req.user!.userId, `Admin reset password for ${user.email}`, getClientIp(req), AuditLevel.WARNING);
+    await logAuditEvent({
+      userId: req.user!.userId,
+      action: "User password reset",
+      ipAddress: getClientIp(req),
+      severity: AuditLevel.WARNING,
+      result: AuditResult.SUCCESS,
+      resourceType: "User",
+      resourceId: String(userId),
+      description: `Admin reset the password for ${user.name} (${user.email})`,
+      metadata: { affectedUserId: userId, affectedUserEmail: user.email },
+    });
     return res.status(200).json({ user });
   } catch (err) {
     next(err);
@@ -91,7 +133,17 @@ export async function unlockAccount(req: Request, res: Response, next: NextFunct
     }
 
     const user = await unlockUser(userId);
-    await createAuditLog(req.user!.userId, `Admin unlocked user account: ${user.email}`, getClientIp(req), AuditLevel.INFO);
+    await logAuditEvent({
+      userId: req.user!.userId,
+      action: "User account unlocked",
+      ipAddress: getClientIp(req),
+      severity: AuditLevel.INFO,
+      result: AuditResult.SUCCESS,
+      resourceType: "User",
+      resourceId: String(userId),
+      description: `Admin unlocked the account for ${user.name} (${user.email})`,
+      metadata: { affectedUserId: userId, affectedUserEmail: user.email },
+    });
     return res.status(200).json({ user });
   } catch (err) {
     next(err);
@@ -106,7 +158,17 @@ export async function removeUser(req: Request, res: Response, next: NextFunction
     }
 
     const removed = await deleteUser(userId);
-    await createAuditLog(req.user!.userId, `Admin deleted user ${removed.email}`, getClientIp(req), AuditLevel.CRITICAL);
+    await logAuditEvent({
+      userId: req.user!.userId,
+      action: "User account deleted",
+      ipAddress: getClientIp(req),
+      severity: AuditLevel.CRITICAL,
+      result: AuditResult.SUCCESS,
+      resourceType: "User",
+      resourceId: String(userId),
+      description: `Admin deleted the account for ${removed.name} (${removed.email})`,
+      metadata: { affectedUserId: userId, affectedUserEmail: removed.email },
+    });
     return res.status(200).json({ success: true });
   } catch (err) {
     next(err);

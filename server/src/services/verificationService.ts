@@ -1,6 +1,6 @@
 import prisma from "../config/prisma";
 import { Decision } from "../../generated/prisma";
-import { DEFAULT_THRESHOLD } from "../config/constants";
+import { DEFAULT_THRESHOLD, REVIEW_MARGIN } from "../config/constants";
 import { decideVerification } from "./decisionEngine";
 import { compareBiometricTemplate, type CaptureMode } from "./aiClient";
 import { getSystemSettings } from "./settingsService";
@@ -80,8 +80,8 @@ export async function runVerification(input: RunVerificationInput) {
       Math.round(((fingerprintComparison.score + irisComparison.score) / 2) * 100) / 100,
   };
 
-  // 4. Decision logic
-  // Priority: CRITICAL > WARNING > biometric threshold
+  // 4. Decision logic - Implement correct alert status matrix
+  // Priority: CRITICAL > WARNING+biometric check > biometric threshold
   // Snapshot the current alert status so history is immutable even if it changes later.
   const alertAtVerification = traveler.alertStatus;
   const alertReasonAtVerification = traveler.alertReason;
@@ -90,19 +90,34 @@ export async function runVerification(input: RunVerificationInput) {
   let decisionReason = "";
   let manualReviewReason: "THRESHOLD_BREACH" | "ALERT_WARNING" | null = null;
 
+  // Check if biometrics passed the threshold
+  const biometricPassed = scores.finalScore >= threshold;
+
   if (alertAtVerification === "CRITICAL") {
-    systemDecision = "PENDING_SUPERVISOR_REVIEW";
-    decisionReason = `Traveller has a CRITICAL watchlist status and requires supervisor review. ${alertReasonAtVerification ?? ""}`.trim();
-    manualReviewReason = "ALERT_WARNING";
+    // CRITICAL: ALWAYS BLOCK/REJECT regardless of biometric result
+    systemDecision = "REJECTED";
+    decisionReason = `Traveler has a CRITICAL alert status. Border crossing is not permitted. ${alertReasonAtVerification ?? ""}`.trim();
+    // No manual review for CRITICAL - it's a hard block
+    manualReviewReason = null;
   } else if (alertAtVerification === "WARNING") {
-    systemDecision = "PENDING_SUPERVISOR_REVIEW";
-    decisionReason = `Traveller has a WARNING watchlist status and requires supervisor review. ${alertReasonAtVerification ?? ""}`.trim();
-    manualReviewReason = "ALERT_WARNING";
+    // WARNING logic depends on biometric result
+    if (biometricPassed) {
+      // WARNING + BIOMETRIC PASS → Supervisor review
+      systemDecision = "PENDING_SUPERVISOR_REVIEW";
+      decisionReason = `Biometric verification passed (${scores.finalScore}% ≥ ${threshold}%), but traveler has a WARNING status requiring supervisor review. ${alertReasonAtVerification ?? ""}`.trim();
+      manualReviewReason = "ALERT_WARNING";
+    } else {
+      // WARNING + BIOMETRIC FAIL → REJECT (do NOT send to supervisor just because of WARNING)
+      systemDecision = "REJECTED";
+      decisionReason = `Biometric verification failed (${scores.finalScore}% < ${threshold}%). Match score is below the configured threshold.`;
+      // No manual review - biometric mismatch takes precedence
+      manualReviewReason = null;
+    }
   } else {
-    // Normal path — use biometric score + threshold
+    // NONE: Normal biometric-based decision
     systemDecision = decideVerification(scores.finalScore, threshold);
     if (systemDecision === "PENDING_SUPERVISOR_REVIEW") {
-      decisionReason = `Biometric confidence score (${scores.finalScore}%) is within the supervisor review range.`;
+      decisionReason = `Biometric confidence score (${scores.finalScore}%) is within the supervisor review range (${threshold - REVIEW_MARGIN}%-${threshold - 1}%).`;
       manualReviewReason = "THRESHOLD_BREACH";
     } else if (systemDecision === "REJECTED") {
       decisionReason = `Biometric confidence score (${scores.finalScore}%) is below the acceptance threshold (${threshold}%).`;
@@ -112,6 +127,10 @@ export async function runVerification(input: RunVerificationInput) {
   }
 
   // 5. Persist verification log with historical snapshot of alert status
+  console.log(
+    `[verification] traveler=${traveler.id} alert=${alertAtVerification} fp=${scores.fingerprintScore} iris=${scores.irisScore} final=${scores.finalScore} threshold=${threshold} biometricPassed=${biometricPassed} -> ${systemDecision} (manualReviewReason=${manualReviewReason ?? "NONE"})`
+  );
+
   const verificationLog = await prisma.verificationLog.create({
     data: {
       travelerId: traveler.id,
@@ -131,7 +150,12 @@ export async function runVerification(input: RunVerificationInput) {
     },
   });
 
-  // 6. Auto-create ManualReviewRequest for supervisor-review decisions
+  // 6. Auto-create ManualReviewRequest ONLY for:
+  //    - WARNING + biometric PASS
+  //    - Biometric score in review range (NONE alert status)
+  // Do NOT create for:
+  //    - CRITICAL (hard block)
+  //    - WARNING + biometric FAIL (rejected due to mismatch)
   if (systemDecision === "PENDING_SUPERVISOR_REVIEW" && manualReviewReason) {
     await prisma.manualReviewRequest.create({
       data: {
@@ -146,13 +170,13 @@ export async function runVerification(input: RunVerificationInput) {
 
     // 7. Notify all supervisors — include alert status context when relevant
     const alertLabel =
-      alertAtVerification !== "NONE"
+      alertAtVerification === "WARNING"
         ? ` [Watchlist: ${alertAtVerification}]`
         : "";
     await notifyAllSupervisors(
       "Manual Review Required",
       `New review for ${traveler.fullName} (FAN: ${traveler.fan})${alertLabel}. Reason: ${decisionReason}`,
-      alertAtVerification !== "NONE" ? "WARNING" : "INFO"
+      alertAtVerification === "WARNING" ? "WARNING" : "INFO"
     ).catch((err) => console.error("Failed to notify supervisors:", err));
   }
 

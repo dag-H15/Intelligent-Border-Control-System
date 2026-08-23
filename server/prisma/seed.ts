@@ -135,6 +135,40 @@ const SEED_TRAVELERS = [
     alertReason:
       "Subject requires immediate supervisor review upon entry. [DEVELOPMENT: simulated external watchlist response]",
   },
+
+  // --- Additional test travelers with specific alert statuses ---
+  {
+    fan: "FAN-400001",
+    fullName: "Meron Tadesse",
+    dateOfBirth: "1995-07-18",
+    gender: Gender.FEMALE,
+    nationality: "Ethiopian",
+    photo: null,
+    alertStatus: AlertStatus.WARNING,
+    alertReason:
+      "Requires additional inspection and documentation review. [DEVELOPMENT: simulated external watchlist response]",
+  },
+  {
+    fan: "FAN-500001",
+    fullName: "Dawit Alemayehu",
+    dateOfBirth: "1987-03-25",
+    gender: Gender.MALE,
+    nationality: "Ethiopian",
+    photo: null,
+    alertStatus: AlertStatus.CRITICAL,
+    alertReason:
+      "Restricted entry - requires supervisor authorization and enhanced security review. [DEVELOPMENT: simulated external watchlist response]",
+  },
+  {
+    fan: "FAN-600001",
+    fullName: "Alemayehu Bekele",
+    dateOfBirth: "1991-12-10",
+    gender: Gender.MALE,
+    nationality: "Ethiopian",
+    photo: null,
+    alertStatus: AlertStatus.NONE,
+    alertReason: null,
+  },
 ];
 
 // ---------------------------------------------------------------------------

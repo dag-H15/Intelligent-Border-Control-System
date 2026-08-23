@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { findTravelerByFan } from "../services/travelerService";
-import { createAuditLog, getClientIp } from "../services/auditService";
+import { logAuditEvent, getClientIp, AuditResult } from "../services/auditService";
 import { AuditLevel } from "../../generated/prisma";
 
 export async function lookupTraveler(req: Request, res: Response, next: NextFunction) {
@@ -12,11 +12,30 @@ export async function lookupTraveler(req: Request, res: Response, next: NextFunc
 
     const traveler = await findTravelerByFan(fan);
     if (!traveler) {
-      await createAuditLog(req.user!.userId, `Traveler lookup failed for FAN ${fan}`, getClientIp(req), AuditLevel.WARNING);
+      await logAuditEvent({
+        userId: req.user!.userId,
+        action: "Traveler lookup failed",
+        ipAddress: getClientIp(req),
+        severity: AuditLevel.WARNING,
+        result: AuditResult.FAILED,
+        resourceType: "Traveler",
+        resourceId: fan,
+        description: `No traveler found for FAN ${fan}`,
+      });
       return res.status(404).json({ message: "Traveler not found" });
     }
 
-    await createAuditLog(req.user!.userId, `Traveler lookup for FAN ${fan}`, getClientIp(req), AuditLevel.INFO);
+    await logAuditEvent({
+      userId: req.user!.userId,
+      action: "Traveler lookup",
+      ipAddress: getClientIp(req),
+      severity: AuditLevel.INFO,
+      result: AuditResult.SUCCESS,
+      resourceType: "Traveler",
+      resourceId: String(traveler.id),
+      description: `Looked up ${traveler.fullName} (FAN: ${fan}) — alert status ${traveler.alertStatus}`,
+      metadata: { fan, alertStatus: traveler.alertStatus },
+    });
 
     return res.status(200).json({
       id: traveler.id,

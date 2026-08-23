@@ -48,6 +48,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback((expiredReason?: string) => {
+    // Best-effort audit of the logout on the server — must run BEFORE the
+    // token is cleared. Failures are ignored (e.g. expired session).
+    if (localStorage.getItem('iabc_token')) {
+      authService.logout().catch(() => undefined);
+    }
     clearAuthArtifacts();
     setUser(null);
     setError(null);

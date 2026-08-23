@@ -12,6 +12,8 @@ import {
   verificationDetail,
   saveReport,
   getReportById,
+  generateReport,
+  auditExport,
 } from "../controllers/reportController";
 import { authenticate, authorize } from "../middleware/authMiddleware";
 
@@ -32,8 +34,15 @@ router.post("/detailed-records", authenticate, authorize("SUPERVISOR", "ADMIN"),
 router.post("/statistics", authenticate, authorize("SUPERVISOR", "ADMIN"), statistics);
 router.post("/chart-data", authenticate, authorize("SUPERVISOR", "ADMIN"), chartData);
 
-// Save generated report with metadata
-router.post("/save", authenticate, authorize("SUPERVISOR", "ADMIN"), saveReport);
+// Generate a full report snapshot (Supervisor action per SRS — Admin has
+// read-only access to generated reports).
+router.post("/generate", authenticate, authorize("SUPERVISOR"), generateReport);
+
+// Audit trail for client-side CSV exports (must be before "/:id")
+router.post("/exported", authenticate, authorize("SUPERVISOR", "ADMIN"), auditExport);
+
+// Save generated report with metadata (legacy metadata-only path)
+router.post("/save", authenticate, authorize("SUPERVISOR"), saveReport);
 
 // Report generation
 router.post("/verification-summary",  authenticate, authorize("SUPERVISOR", "ADMIN"), verificationSummary);

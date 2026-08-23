@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { AuditLevel, Role } from "../../generated/prisma";
-import { createAuditLog, getClientIp } from "../services/auditService";
+import { logAuditEvent, getClientIp, AuditResult } from "../services/auditService";
 
 const JWT_SECRET = process.env.JWT_SECRET as string;
 
@@ -30,12 +30,14 @@ export function authenticate(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    void createAuditLog(
-      null,
-      "Missing or malformed Authorization header",
-      getClientIp(req),
-      AuditLevel.WARNING
-    );
+    void logAuditEvent({
+      userId: null,
+      action: "Missing or malformed Authorization header",
+      ipAddress: getClientIp(req),
+      severity: AuditLevel.WARNING,
+      result: AuditResult.DENIED,
+      description: "Request rejected — no Bearer token supplied",
+    });
     return res.status(401).json({ message: "Missing or malformed Authorization header" });
   }
 
@@ -46,12 +48,14 @@ export function authenticate(req: Request, res: Response, next: NextFunction) {
     req.user = decoded;
     next();
   } catch (err) {
-    void createAuditLog(
-      null,
-      "Invalid or expired token",
-      getClientIp(req),
-      AuditLevel.WARNING
-    );
+    void logAuditEvent({
+      userId: null,
+      action: "Invalid or expired token",
+      ipAddress: getClientIp(req),
+      severity: AuditLevel.WARNING,
+      result: AuditResult.DENIED,
+      description: "Request rejected — the supplied token is invalid or has expired",
+    });
     return res.status(401).json({ message: "Invalid or expired token" });
   }
 }
@@ -71,12 +75,14 @@ export function authorize(...allowedRoles: Role[]) {
     }
 
     if (!allowedRoles.includes(req.user.role)) {
-      await createAuditLog(
-        req.user.userId,
-        `Unauthorized access attempt for role ${req.user.role}; required ${allowedRoles.join(", ")}`,
-        getClientIp(req),
-        AuditLevel.WARNING
-      );
+      await logAuditEvent({
+        userId: req.user.userId,
+        action: "Unauthorized access attempt",
+        ipAddress: getClientIp(req),
+        severity: AuditLevel.CRITICAL,
+        result: AuditResult.DENIED,
+        description: `Role ${req.user.role} attempted to access a resource requiring ${allowedRoles.join(", ")}`,
+      });
       return res.status(403).json({
         message: `Access denied. Required role(s): ${allowedRoles.join(", ")}`,
       });

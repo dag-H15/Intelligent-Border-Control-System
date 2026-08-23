@@ -42,14 +42,14 @@ def check_biometric_quality(payload: str, biometric_type: str) -> dict:
             overall_score = round(0.3 * sharpness_score + 0.3 * contrast_score + 0.4 * heuristic_score, 2)
         is_acceptable = overall_score >= 50.0
         return {
-            "score": overall_score,
-            "acceptable": is_acceptable,
-            "biometricType": biometric_type,
+            "score": float(overall_score),
+            "acceptable": bool(is_acceptable),
+            "biometricType": str(biometric_type),
             "details": {
-                "sharpness": round(sharpness_score, 2),
-                "contrast": round(contrast_score, 2),
-                "heuristic": round(heuristic_score, 2),
-                "laplacianVariance": round(lap_var, 2)
+                "sharpness": float(round(sharpness_score, 2)),
+                "contrast": float(round(contrast_score, 2)),
+                "heuristic": float(round(heuristic_score, 2)),
+                "laplacianVariance": float(round(lap_var, 2))
             }
         }
     except Exception as e:

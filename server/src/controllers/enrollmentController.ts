@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { createTraveler, captureBiometric } from "../services/enrollmentService";
-import { createAuditLog, getClientIp } from "../services/auditService";
+import { logAuditEvent, getClientIp, AuditResult } from "../services/auditService";
 import { AuditLevel, Gender } from "../../generated/prisma";
 import {
   isValidFingerprintFormat,
@@ -20,37 +20,49 @@ export async function createTravelerHandler(req: Request, res: Response, next: N
     const { fan, fullName, dateOfBirth, gender, nationality, photo } = req.body;
 
     if (!fan || !fullName || !dateOfBirth || !gender || !nationality) {
-      await createAuditLog(
-        req.user!.userId,
-        "Invalid traveler enrollment request: missing required fields",
-        getClientIp(req),
-        AuditLevel.WARNING
-      );
+      await logAuditEvent({
+        userId: req.user!.userId,
+        action: "Invalid enrollment request",
+        ipAddress: getClientIp(req),
+        severity: AuditLevel.WARNING,
+        result: AuditResult.FAILED,
+        resourceType: "Traveler",
+        description: "Enrollment rejected — fan, fullName, dateOfBirth, gender, and nationality are all required",
+      });
       return res.status(400).json({
         message: "fan, fullName, dateOfBirth, gender, and nationality are required",
       });
     }
 
     if (!VALID_GENDERS.includes(gender)) {
-      await createAuditLog(
-        req.user!.userId,
-        `Invalid traveler enrollment request: unsupported gender ${gender}`,
-        getClientIp(req),
-        AuditLevel.WARNING
-      );
+      await logAuditEvent({
+        userId: req.user!.userId,
+        action: "Invalid enrollment request",
+        ipAddress: getClientIp(req),
+        severity: AuditLevel.WARNING,
+        result: AuditResult.FAILED,
+        resourceType: "Traveler",
+        resourceId: fan ? String(fan) : null,
+        description: `Enrollment rejected — unsupported gender value ${gender}`,
+      });
       return res.status(400).json({ message: `gender must be one of: ${VALID_GENDERS.join(", ")}` });
     }
 
     const result = await createTraveler({ fan, fullName, dateOfBirth, gender, nationality, photo });
 
-    await createAuditLog(
-      req.user!.userId,
-      result.resumedDraft
-        ? `Resumed incomplete enrollment for traveler (FAN: ${fan})`
-        : `Enrollment started for traveler (FAN: ${fan})`,
-      getClientIp(req),
-      AuditLevel.INFO
-    );
+    await logAuditEvent({
+      userId: req.user!.userId,
+      action: result.resumedDraft ? "Enrollment resumed" : "Enrollment started",
+      ipAddress: getClientIp(req),
+      severity: AuditLevel.INFO,
+      result: AuditResult.SUCCESS,
+      resourceType: "Traveler",
+      resourceId: String(result.traveler.id),
+      description:
+        (result.resumedDraft ? "Resumed incomplete enrollment for " : "Started enrollment for ") +
+        `${result.traveler.fullName} (FAN: ${fan})`,
+      metadata: { fan },
+    });
 
     return res.status(result.resumedDraft ? 200 : 201).json({
       traveler: result.traveler,
@@ -58,12 +70,16 @@ export async function createTravelerHandler(req: Request, res: Response, next: N
     });
   } catch (err) {
     if ((err as any)?.statusCode === 409) {
-      await createAuditLog(
-        req.user!.userId,
-        `Duplicate enrollment attempt for traveler (FAN: ${req.body.fan})`,
-        getClientIp(req),
-        AuditLevel.WARNING
-      );
+      await logAuditEvent({
+        userId: req.user!.userId,
+        action: "Duplicate enrollment attempt",
+        ipAddress: getClientIp(req),
+        severity: AuditLevel.WARNING,
+        result: AuditResult.FAILED,
+        resourceType: "Traveler",
+        resourceId: req.body.fan ? String(req.body.fan) : null,
+        description: `Enrollment rejected — a traveler with FAN ${req.body.fan} already exists`,
+      });
     }
     next(err);
   }
@@ -80,12 +96,16 @@ export async function captureBiometricHandler(req: Request, res: Response, next:
     const irisSource = irisImage ?? irisTemplate;
 
     if (!fan || !fingerprintSource || !irisSource) {
-      await createAuditLog(
-        req.user!.userId,
-        `Invalid biometric enrollment request for FAN ${fan || "unknown"}: missing required fields`,
-        getClientIp(req),
-        AuditLevel.WARNING
-      );
+      await logAuditEvent({
+        userId: req.user!.userId,
+        action: "Invalid enrollment request",
+        ipAddress: getClientIp(req),
+        severity: AuditLevel.WARNING,
+        result: AuditResult.FAILED,
+        resourceType: "Traveler",
+        resourceId: fan ? String(fan) : null,
+        description: `Biometric enrollment rejected — missing required fields for FAN ${fan || "unknown"}`,
+      });
       return res.status(400).json({
         message: "fan, fingerprintImage, and irisImage are required",
       });
@@ -93,12 +113,16 @@ export async function captureBiometricHandler(req: Request, res: Response, next:
 
     // Validate fingerprint template format
     if (!isMockOrSeededFingerprint(fingerprintSource) && !isValidFingerprintFormat(fingerprintSource)) {
-      await createAuditLog(
-        req.user!.userId,
-        `Invalid biometric enrollment request for FAN ${fan}: invalid fingerprint format`,
-        getClientIp(req),
-        AuditLevel.WARNING
-      );
+      await logAuditEvent({
+        userId: req.user!.userId,
+        action: "Invalid enrollment request",
+        ipAddress: getClientIp(req),
+        severity: AuditLevel.WARNING,
+        result: AuditResult.FAILED,
+        resourceType: "Traveler",
+        resourceId: fan ? String(fan) : null,
+        description: `Biometric enrollment rejected — invalid fingerprint image format for FAN ${fan}`,
+      });
       return res.status(400).json({
         message: "Invalid fingerprint image format. Accepted formats: PNG, JPG, JPEG, BMP, TIF, TIFF",
       });
@@ -106,12 +130,16 @@ export async function captureBiometricHandler(req: Request, res: Response, next:
 
     // Validate iris template format
     if (!isMockOrSeededIris(irisSource) && !isValidIrisFormat(irisSource)) {
-      await createAuditLog(
-        req.user!.userId,
-        `Invalid biometric enrollment request for FAN ${fan}: invalid iris format`,
-        getClientIp(req),
-        AuditLevel.WARNING
-      );
+      await logAuditEvent({
+        userId: req.user!.userId,
+        action: "Invalid enrollment request",
+        ipAddress: getClientIp(req),
+        severity: AuditLevel.WARNING,
+        result: AuditResult.FAILED,
+        resourceType: "Traveler",
+        resourceId: fan ? String(fan) : null,
+        description: `Biometric enrollment rejected — invalid iris image format for FAN ${fan}`,
+      });
       return res.status(400).json({
         message: "Invalid iris image format. Accepted formats: PNG, JPG, JPEG, BMP",
       });
@@ -125,12 +153,17 @@ export async function captureBiometricHandler(req: Request, res: Response, next:
       capturedBy: req.user!.userId,
     });
 
-    await createAuditLog(
-      req.user!.userId,
-      `Biometric captured, traveler enrolled (FAN: ${fan})`,
-      getClientIp(req),
-      AuditLevel.INFO
-    );
+    await logAuditEvent({
+      userId: req.user!.userId,
+      action: "Traveler enrolled",
+      ipAddress: getClientIp(req),
+      severity: AuditLevel.INFO,
+      result: AuditResult.SUCCESS,
+      resourceType: "Traveler",
+      resourceId: String(result.traveler.id),
+      description: `Biometrics captured — ${result.traveler.fullName} is fully enrolled (FAN: ${fan})`,
+      metadata: { fan, biometricId: result.biometric.id },
+    });
 
     return res.status(201).json({
       traveler: result.traveler,
@@ -145,19 +178,27 @@ export async function captureBiometricHandler(req: Request, res: Response, next:
     });
   } catch (err) {
     if ((err as any)?.statusCode === 409) {
-      await createAuditLog(
-        req.user!.userId,
-        `Duplicate biometric enrollment attempt for FAN ${req.body.fan}: ${(err as Error).message}`,
-        getClientIp(req),
-        AuditLevel.WARNING
-      );
+      await logAuditEvent({
+        userId: req.user!.userId,
+        action: "Duplicate enrollment attempt",
+        ipAddress: getClientIp(req),
+        severity: AuditLevel.WARNING,
+        result: AuditResult.FAILED,
+        resourceType: "Traveler",
+        resourceId: req.body.fan ? String(req.body.fan) : null,
+        description: `Duplicate biometric enrollment attempt for FAN ${req.body.fan}: ${(err as Error).message}`,
+      });
     } else if ((err as any)?.statusCode === 404) {
-      await createAuditLog(
-        req.user!.userId,
-        `Invalid biometric enrollment attempt for FAN ${req.body.fan}: ${(err as Error).message}`,
-        getClientIp(req),
-        AuditLevel.WARNING
-      );
+      await logAuditEvent({
+        userId: req.user!.userId,
+        action: "Invalid enrollment request",
+        ipAddress: getClientIp(req),
+        severity: AuditLevel.WARNING,
+        result: AuditResult.FAILED,
+        resourceType: "Traveler",
+        resourceId: req.body.fan ? String(req.body.fan) : null,
+        description: `Invalid biometric enrollment attempt for FAN ${req.body.fan}: ${(err as Error).message}`,
+      });
     }
     next(err);
   }

@@ -13,9 +13,11 @@ export interface ReportParams {
 interface BackendReportRecord {
   id: number;
   reportType: string;
+  reportTitle: string;
   startDate: string;
   endDate: string;
   createdAt: string;
+  recordCount?: number;
   generatedByUser?: {
     name: string;
     role: string;
@@ -61,15 +63,88 @@ export interface OfficerOption {
 function mapReportRecord(report: BackendReportRecord): ReportRecord {
   return {
     id: String(report.id),
-    name: report.reportType.split('_').join(' '),
+    name: report.reportTitle || report.reportType.split('_').join(' '),
     type: report.reportType.split('_').join(' '),
     generatedBy: report.generatedByUser?.name ?? 'System',
     date: new Date(report.createdAt).toLocaleString(),
     /** Store the original UTC dates so handleDownloadPrevious can use them. */
     startDate: report.startDate,
     endDate: report.endDate,
+    recordCount: report.recordCount,
     status: 'Generated',
   };
+}
+
+/** A saved BORDER_CROSSING report snapshot as returned by the backend. */
+export interface GeneratedReportSnapshot {
+  id: number;
+  reportType: string;
+  reportTitle: string;
+  startDate: string;
+  endDate: string;
+  createdAt: string;
+  recordCount: number;
+  generatedByUser?: { id: number; name: string; email: string; role: string };
+  filters: {
+    officerId?: number;
+    checkpointId?: number;
+    direction?: string;
+    decision?: string;
+    alertStatus?: string;
+    labels?: {
+      officer: string;
+      checkpoint: string;
+      direction: string;
+      decision: string;
+      watchlistStatus: string;
+    };
+  };
+  summaryData?: {
+    totalCrossings: number;
+    verified: number;
+    rejected: number;
+    pendingReview: number;
+    entries: number;
+    exits: number;
+    manualReviews: number;
+    watchlistWarnings: number;
+    watchlistCritical: number;
+  } | null;
+  chartData?: {
+    decisions: { verified: number; pending: number; rejected: number };
+    directionBreakdown: { entry: number; exit: number };
+    watchlistBreakdown?: { none: number; warning: number; critical: number };
+    byCheckpoint: Array<{ name: string; count: number }>;
+    overTime: Array<{ date: string; count: number }>;
+  } | null;
+  recordsData?: Array<{
+    verificationId: number;
+    timestamp: string;
+    direction: string;
+    fingerprintScore: number;
+    irisScore: number;
+    finalScore: number;
+    threshold: number;
+    systemDecision: string;
+    finalDecision: string;
+    decisionReason: string | null;
+    alertStatusAtVerification: string;
+    alertReasonAtVerification: string | null;
+    checkpointName: string | null;
+    checkpointLocation: string | null;
+    officerName: string | null;
+    travelerName: string | null;
+    travelerFan: string | null;
+    travelerNationality: string | null;
+    manualReview: {
+      status: string;
+      reason: string;
+      decision?: string | null;
+      supervisorNotes: string | null;
+      supervisorName: string | null;
+      decidedAt: string;
+    } | null;
+  }> | null;
 }
 
 export const reportService = {
@@ -183,9 +258,29 @@ export const reportService = {
     return data.report;
   },
 
-  /** Get a specific generated report by ID */
-  getReportById: async (id: number) => {
-    const { data } = await api.get(`/reports/${id}`);
+  /**
+   * Supervisor action: generate a full BORDER_CROSSING report snapshot from the
+   * current filters. The backend computes statistics, chart aggregations and
+   * detailed records from a single authoritative query and stores them so the
+   * report stays historically accurate.
+   */
+  generateReport: async (payload: {
+    reportTitle: string;
+    startDate: string;
+    endDate: string;
+    officerId?: number;
+    checkpointId?: number;
+    direction?: 'ENTRY' | 'EXIT';
+    decision?: 'VERIFIED' | 'PENDING_SUPERVISOR_REVIEW' | 'REJECTED';
+    alertStatus?: 'NONE' | 'WARNING' | 'CRITICAL';
+  }): Promise<GeneratedReportSnapshot> => {
+    const { data } = await api.post<{ report: GeneratedReportSnapshot }>('/reports/generate', payload);
+    return data.report;
+  },
+
+  /** Get a specific generated report (including its stored snapshot) by ID */
+  getReportById: async (id: number): Promise<GeneratedReportSnapshot> => {
+    const { data } = await api.get<{ report: GeneratedReportSnapshot }>(`/reports/${id}`);
     return data.report;
   },
 };

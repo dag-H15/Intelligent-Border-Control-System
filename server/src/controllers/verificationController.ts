@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import multer from "multer";
 import { runVerification, getVerificationsByOfficer, getDashboardStats } from "../services/verificationService";
-import { createAuditLog, getClientIp } from "../services/auditService";
+import { logAuditEvent, getClientIp, AuditResult } from "../services/auditService";
 import { AuditLevel } from "../../generated/prisma";
 import { checkBiometricQuality } from "../services/aiClient";
 import {
@@ -34,7 +34,15 @@ export async function verify(req: Request, res: Response, next: NextFunction) {
     const irisSource = irisImage ? String(irisImage) : irisData ? String(irisData) : undefined;
 
     if (!travelerId && !fan) {
-      await createAuditLog(req.user!.userId, "Invalid verification request: traveler reference missing", getClientIp(req), AuditLevel.WARNING);
+      await logAuditEvent({
+        userId: req.user!.userId,
+        action: "Invalid verification request",
+        ipAddress: getClientIp(req),
+        severity: AuditLevel.WARNING,
+        result: AuditResult.FAILED,
+        resourceType: "Verification",
+        description: "Verification rejected — traveler reference missing",
+      });
       return res.status(400).json({ message: "travelerId or fan is required" });
     }
 
@@ -44,12 +52,16 @@ export async function verify(req: Request, res: Response, next: NextFunction) {
       }
       const fpInput = fingerprintBuffer || fingerprintSource;
       if (fpInput && !isMockOrSeededFingerprint(fpInput) && !isValidFingerprintFormat(fpInput)) {
-        await createAuditLog(
-          req.user!.userId,
-          `Invalid verification request: invalid fingerprint format for traveler ${travelerId || fan}`,
-          getClientIp(req),
-          AuditLevel.WARNING
-        );
+        await logAuditEvent({
+          userId: req.user!.userId,
+          action: "Invalid verification request",
+          ipAddress: getClientIp(req),
+          severity: AuditLevel.WARNING,
+          result: AuditResult.FAILED,
+          resourceType: "Verification",
+          resourceId: travelerId ? String(travelerId) : fan ? String(fan) : null,
+          description: `Verification rejected — invalid fingerprint image format for traveler ${travelerId || fan}`,
+        });
         return res.status(400).json({
           message: "Invalid fingerprint image format. Accepted formats: PNG, JPG, JPEG, BMP, TIF, TIFF",
         });
@@ -60,12 +72,16 @@ export async function verify(req: Request, res: Response, next: NextFunction) {
       }
       const irisInput = irisBuffer || irisSource;
       if (irisInput && !isMockOrSeededIris(irisInput) && !isValidIrisFormat(irisInput)) {
-        await createAuditLog(
-          req.user!.userId,
-          `Invalid verification request: invalid iris format for traveler ${travelerId || fan}`,
-          getClientIp(req),
-          AuditLevel.WARNING
-        );
+        await logAuditEvent({
+          userId: req.user!.userId,
+          action: "Invalid verification request",
+          ipAddress: getClientIp(req),
+          severity: AuditLevel.WARNING,
+          result: AuditResult.FAILED,
+          resourceType: "Verification",
+          resourceId: travelerId ? String(travelerId) : fan ? String(fan) : null,
+          description: `Verification rejected — invalid iris image format for traveler ${travelerId || fan}`,
+        });
         return res.status(400).json({
           message: "Invalid iris image format. Accepted formats: PNG, JPG, JPEG, BMP",
         });
@@ -94,12 +110,45 @@ export async function verify(req: Request, res: Response, next: NextFunction) {
       checkpointId: checkpointId ? Number(checkpointId) : undefined,
     });
 
-    await createAuditLog(
-      req.user!.userId,
-      `Verification attempt for FAN ${result.traveler.fan} -> ${result.verificationLog.systemDecision}`,
-      getClientIp(req),
-      AuditLevel.INFO
-    );
+    // Severity matrix:
+    //  - CRITICAL watchlist encounter          → CRITICAL
+    //  - rejected or routed to manual review   → WARNING
+    //  - clean verification                    → INFO
+    const decision = result.verificationLog.systemDecision;
+    const alertAtVerification = result.traveler.alertStatus;
+    let severity: AuditLevel = AuditLevel.INFO;
+    if (alertAtVerification === "CRITICAL") {
+      severity = AuditLevel.CRITICAL;
+    } else if (
+      decision === "REJECTED" ||
+      decision === "PENDING_SUPERVISOR_REVIEW" ||
+      alertAtVerification === "WARNING"
+    ) {
+      severity = AuditLevel.WARNING;
+    }
+
+    await logAuditEvent({
+      userId: req.user!.userId,
+      action: "Verification completed",
+      ipAddress: getClientIp(req),
+      severity,
+      result: decision ?? undefined,
+      resourceType: "Verification",
+      resourceId: result.verificationLog.id,
+      description: `Verification for FAN ${result.traveler.fan} (${result.traveler.fullName}) — system decision: ${decision}. ${result.decisionReason}`,
+      metadata: {
+        fan: result.traveler.fan,
+        travelerId: result.traveler.id,
+        fingerprintScore: result.verificationLog.fingerprintScore,
+        irisScore: result.verificationLog.irisScore,
+        finalScore: result.verificationLog.finalScore,
+        threshold: result.verificationLog.threshold,
+        direction: result.verificationLog.direction ?? "ENTRY",
+        checkpointId: result.verificationLog.checkpointId ?? null,
+        alertStatus: alertAtVerification ?? "NONE",
+        reason: result.decisionReason,
+      },
+    });
 
     return res.status(201).json({
       verificationLog: result.verificationLog,
@@ -119,12 +168,16 @@ export async function verify(req: Request, res: Response, next: NextFunction) {
     });
   } catch (err) {
     if ((err as any)?.statusCode === 404 || (err as any)?.statusCode === 409) {
-      await createAuditLog(
-        req.user!.userId,
-        `Invalid verification attempt for FAN ${req.body.fan || req.body.travelerId}: ${(err as Error).message}`,
-        getClientIp(req),
-        AuditLevel.WARNING
-      );
+      await logAuditEvent({
+        userId: req.user!.userId,
+        action: "Invalid verification attempt",
+        ipAddress: getClientIp(req),
+        severity: AuditLevel.WARNING,
+        result: AuditResult.FAILED,
+        resourceType: "Verification",
+        resourceId: req.body.travelerId ? String(req.body.travelerId) : req.body.fan ? String(req.body.fan) : null,
+        description: `Verification failed for FAN ${req.body.fan || req.body.travelerId}: ${(err as Error).message}`,
+      });
     }
     next(err);
   }

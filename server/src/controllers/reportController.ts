@@ -12,8 +12,9 @@ import {
   getVerificationDetail,
   saveGeneratedReport,
   getGeneratedReportById,
+  generateBorderCrossingReport,
 } from "../services/reportService";
-import { createAuditLog, getClientIp } from "../services/auditService";
+import { logAuditEvent, getClientIp, AuditResult } from "../services/auditService";
 import { AuditLevel } from "../../generated/prisma";
 
 /**
@@ -28,12 +29,15 @@ async function validateDateRange(
 ): Promise<{ startDate: string; endDate: string } | null> {
   const { startDate, endDate } = req.body;
   if (!startDate || !endDate) {
-    await createAuditLog(
-      req.user!.userId,
-      `Invalid report request for ${action}: startDate and endDate are required`,
-      getClientIp(req),
-      AuditLevel.WARNING
-    );
+    await logAuditEvent({
+      userId: req.user!.userId,
+      action: "Invalid report request",
+      ipAddress: getClientIp(req),
+      severity: AuditLevel.WARNING,
+      result: AuditResult.FAILED,
+      resourceType: "Report",
+      description: `Invalid report request for ${action}: startDate and endDate are required`,
+    });
     res.status(400).json({ message: "startDate and endDate are required" });
     return null;
   }
@@ -51,12 +55,16 @@ export async function verificationSummary(req: Request, res: Response, next: Nex
       generatedBy: req.user!.userId,
     });
 
-    await createAuditLog(
-      req.user!.userId,
-      `Generated verification summary report | range: ${range.startDate} – ${range.endDate} | total: ${result.summary.total}`,
-      getClientIp(req),
-      AuditLevel.INFO
-    );
+    await logAuditEvent({
+      userId: req.user!.userId,
+      action: "Report generated",
+      ipAddress: getClientIp(req),
+      severity: AuditLevel.INFO,
+      result: AuditResult.SUCCESS,
+      resourceType: "Report",
+      description: `Generated verification summary report | range: ${range.startDate} – ${range.endDate} | total: ${result.summary.total}`,
+      metadata: { reportType: "VERIFICATION_SUMMARY", startDate: range.startDate, endDate: range.endDate, records: result.summary.total },
+    });
 
     return res.status(201).json(result);
   } catch (err) {
@@ -75,12 +83,16 @@ export async function overrideSummary(req: Request, res: Response, next: NextFun
       generatedBy: req.user!.userId,
     });
 
-    await createAuditLog(
-      req.user!.userId,
-      `Generated override summary report | range: ${range.startDate} – ${range.endDate} | total: ${result.summary.total}`,
-      getClientIp(req),
-      AuditLevel.INFO
-    );
+    await logAuditEvent({
+      userId: req.user!.userId,
+      action: "Report generated",
+      ipAddress: getClientIp(req),
+      severity: AuditLevel.INFO,
+      result: AuditResult.SUCCESS,
+      resourceType: "Report",
+      description: `Generated override summary report | range: ${range.startDate} – ${range.endDate} | total: ${result.summary.total}`,
+      metadata: { reportType: "OVERRIDE_SUMMARY", startDate: range.startDate, endDate: range.endDate, records: result.summary.total },
+    });
 
     return res.status(201).json(result);
   } catch (err) {
@@ -115,12 +127,22 @@ export async function officerActivity(req: Request, res: Response, next: NextFun
     });
 
     const officerLabel = officerId !== undefined ? `officerId: ${officerId}` : "all officers";
-    await createAuditLog(
-      req.user!.userId,
-      `Generated officer activity report | range: ${range.startDate} – ${range.endDate} | ${officerLabel} | records: ${result.summary.reduce((s, o) => s + o.verifications, 0)}`,
-      getClientIp(req),
-      AuditLevel.INFO
-    );
+    await logAuditEvent({
+      userId: req.user!.userId,
+      action: "Report generated",
+      ipAddress: getClientIp(req),
+      severity: AuditLevel.INFO,
+      result: AuditResult.SUCCESS,
+      resourceType: "Report",
+      description: `Generated officer activity report | range: ${range.startDate} – ${range.endDate} | ${officerLabel} | records: ${result.summary.reduce((s, o) => s + o.verifications, 0)}`,
+      metadata: {
+        reportType: "OFFICER_ACTIVITY",
+        startDate: range.startDate,
+        endDate: range.endDate,
+        officerId: officerId ?? null,
+        records: result.summary.reduce((s, o) => s + o.verifications, 0),
+      },
+    });
 
     return res.status(201).json(result);
   } catch (err) {
@@ -139,12 +161,16 @@ export async function manualReviewSummary(req: Request, res: Response, next: Nex
       generatedBy: req.user!.userId,
     });
 
-    await createAuditLog(
-      req.user!.userId,
-      `Generated manual review summary report | range: ${range.startDate} – ${range.endDate} | records: ${result.summary.length}`,
-      getClientIp(req),
-      AuditLevel.INFO
-    );
+    await logAuditEvent({
+      userId: req.user!.userId,
+      action: "Report generated",
+      ipAddress: getClientIp(req),
+      severity: AuditLevel.INFO,
+      result: AuditResult.SUCCESS,
+      resourceType: "Report",
+      description: `Generated manual review summary report | range: ${range.startDate} – ${range.endDate} | records: ${result.summary.length}`,
+      metadata: { reportType: "MANUAL_REVIEW_SUMMARY", startDate: range.startDate, endDate: range.endDate, records: result.summary.length },
+    });
 
     return res.status(201).json(result);
   } catch (err) {
@@ -285,11 +311,67 @@ export async function verificationDetail(req: Request, res: Response, next: Next
 
 
 /**
+ * POST /api/reports/generate
+ * Supervisor action: generates a full BORDER_CROSSING report snapshot from the
+ * selected filters (title, metadata, summary statistics, chart aggregations and
+ * detailed records) and persists it for later viewing by Supervisors/Admins.
+ */
+export async function generateReport(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { reportTitle, startDate, endDate, officerId, checkpointId, direction, decision, alertStatus } = req.body;
+
+    if (!startDate || !endDate) {
+      return res.status(400).json({ message: "startDate and endDate are required" });
+    }
+    if (!reportTitle || !String(reportTitle).trim()) {
+      return res.status(400).json({ message: "reportTitle is required" });
+    }
+
+    const filters: any = {};
+    if (officerId !== undefined && officerId !== "") filters.officerId = Number(officerId);
+    if (checkpointId !== undefined && checkpointId !== "") filters.checkpointId = Number(checkpointId);
+    if (direction) filters.direction = direction;
+    if (decision) filters.decision = decision;
+    if (alertStatus) filters.alertStatus = alertStatus;
+
+    const report = await generateBorderCrossingReport({
+      reportTitle: String(reportTitle).trim(),
+      startDate: String(startDate),
+      endDate: String(endDate),
+      generatedBy: req.user!.userId,
+      filters,
+    });
+
+    await logAuditEvent({
+      userId: req.user!.userId,
+      action: "Report generated",
+      ipAddress: getClientIp(req),
+      severity: AuditLevel.INFO,
+      result: AuditResult.SUCCESS,
+      resourceType: "Report",
+      resourceId: String(report.id),
+      description: `Generated report "${report.reportTitle}" | ${report.startDate.toISOString().slice(0, 10)} – ${report.endDate.toISOString().slice(0, 10)} | records: ${report.recordCount}`,
+      metadata: {
+        reportId: report.id,
+        reportTitle: report.reportTitle,
+        reportType: report.reportType ?? null,
+        startDate: report.startDate.toISOString().slice(0, 10),
+        endDate: report.endDate.toISOString().slice(0, 10),
+        records: report.recordCount,
+      },
+    });
+
+    return res.status(201).json({ report });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
  * POST /api/reports/save
  * Save a generated report with metadata
  */
-export async function saveReport(req: Request, res: Response, next: NextFunction) {
-  try {
+export async function saveReport(req: Request, res: Response, next: NextFunction) {  try {
     const {
       reportType,
       reportTitle,
@@ -342,6 +424,38 @@ export async function getReportById(req: Request, res: Response, next: NextFunct
     }
 
     return res.status(200).json({ report });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /api/reports/exported
+ * The report CSV is assembled in the browser, so the export itself never
+ * touches the server. This lightweight endpoint records the "Report
+ * exported" audit event when a user downloads a report.
+ */
+export async function auditExport(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { reportId, reportTitle, recordCount } = req.body;
+
+    await logAuditEvent({
+      userId: req.user!.userId,
+      action: "Report exported",
+      ipAddress: getClientIp(req),
+      severity: AuditLevel.INFO,
+      result: AuditResult.SUCCESS,
+      resourceType: "Report",
+      resourceId: reportId !== undefined && reportId !== null ? String(reportId) : null,
+      description: `Exported report${reportTitle ? ` "${reportTitle}"` : ""} to CSV`,
+      metadata: {
+        reportId: reportId ?? null,
+        reportTitle: reportTitle ?? null,
+        records: recordCount ?? null,
+      },
+    });
+
+    return res.status(200).json({ success: true });
   } catch (err) {
     next(err);
   }

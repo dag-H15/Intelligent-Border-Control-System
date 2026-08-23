@@ -95,6 +95,12 @@ export interface ManualReviewRecord {
     irisScore: number;
     finalScore: number;
     finalDecision: string;
+    threshold?: number | null;
+    decisionReason?: string | null;
+    direction?: 'ENTRY' | 'EXIT' | null;
+    checkpoint?: { id: number; name: string } | null;
+    alertStatusAtVerification?: string | null;
+    alertReasonAtVerification?: string | null;
   };
 }
 
@@ -110,6 +116,7 @@ export interface VerificationRecord {
   irisScore: number;
   finalScore: number;
   threshold?: number;
+  decisionReason?: string | null;
   direction?: 'ENTRY' | 'EXIT';
   checkpointName?: string;
   alertStatusAtVerification?: string | null;
@@ -144,6 +151,8 @@ export interface ReportRecord {
   startDate?: string;
   /** ISO date string of the report's original end date (stored by the backend). */
   endDate?: string;
+  /** Number of verification records captured in the report snapshot. */
+  recordCount?: number;
 }
 
 export interface ReportSummary {

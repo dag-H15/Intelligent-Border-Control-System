@@ -389,6 +389,7 @@ export async function getVerificationChartData(filters: Omit<VerificationFilters
     select: {
       finalDecision: true,
       direction: true,
+      alertStatusAtVerification: true,
       timestamp: true,
       checkpoint: {
         select: { name: true },
@@ -407,6 +408,13 @@ export async function getVerificationChartData(filters: Omit<VerificationFilters
   const directionBreakdown = {
     entry: logs.filter((l) => l.direction === "ENTRY").length,
     exit: logs.filter((l) => l.direction === "EXIT").length,
+  };
+
+  // Watchlist status breakdown (snapshot of the alert status at verification time)
+  const watchlistBreakdown = {
+    none: logs.filter((l) => (l.alertStatusAtVerification ?? "NONE") === "NONE").length,
+    warning: logs.filter((l) => l.alertStatusAtVerification === "WARNING").length,
+    critical: logs.filter((l) => l.alertStatusAtVerification === "CRITICAL").length,
   };
 
   // Crossings by checkpoint
@@ -432,6 +440,7 @@ export async function getVerificationChartData(filters: Omit<VerificationFilters
   return {
     decisions,
     directionBreakdown,
+    watchlistBreakdown,
     byCheckpoint,
     overTime,
   };
@@ -585,6 +594,192 @@ export async function getGeneratedReportById(reportId: number) {
           role: true,
         },
       },
+    },
+  });
+
+  return report;
+}
+
+/** Filter payload accepted by the generated-report flow. */
+interface GenerateReportFilters {
+  officerId?: number;
+  checkpointId?: number;
+  direction?: "ENTRY" | "EXIT";
+  decision?: "VERIFIED" | "PENDING_SUPERVISOR_REVIEW" | "REJECTED";
+  alertStatus?: "NONE" | "WARNING" | "CRITICAL";
+}
+
+/** Safety cap so a runaway filter cannot freeze the server. */
+const MAX_REPORT_RECORDS = 5000;
+
+/**
+ * Generate a BORDER_CROSSING report snapshot.
+ *
+ * A single authoritative query feeds the statistics, the chart aggregations and
+ * the stored detailed records, guaranteeing that summary cards, charts, table
+ * and later exports all describe exactly the same dataset. Everything is
+ * persisted on the Report row so opening the report later shows the data as it
+ * was at generation time, even if the live database has changed since.
+ */
+export async function generateBorderCrossingReport({
+  reportTitle,
+  startDate,
+  endDate,
+  generatedBy,
+  filters,
+}: {
+  reportTitle: string;
+  startDate: string | Date;
+  endDate: string | Date;
+  generatedBy: number;
+  filters: GenerateReportFilters;
+}) {
+  const start = toStartOfDay(startDate);
+  const end = toEndOfDay(endDate);
+
+  const whereClause: any = { timestamp: { gte: start, lte: end } };
+  if (filters.officerId !== undefined) whereClause.officerId = filters.officerId;
+  if (filters.checkpointId !== undefined) whereClause.checkpointId = filters.checkpointId;
+  if (filters.direction !== undefined) whereClause.direction = filters.direction;
+  if (filters.decision !== undefined) whereClause.finalDecision = filters.decision;
+  if (filters.alertStatus !== undefined) whereClause.alertStatusAtVerification = filters.alertStatus;
+
+  // --- Single authoritative dataset ---
+  const logs = await prisma.verificationLog.findMany({
+    where: whereClause,
+    orderBy: { timestamp: "desc" },
+    take: MAX_REPORT_RECORDS,
+    include: {
+      traveler: { select: { id: true, fan: true, fullName: true, nationality: true } },
+      officer: { select: { id: true, name: true } },
+      checkpoint: { select: { id: true, name: true, location: true } },
+      manualReviewRequest: {
+        select: {
+          id: true,
+          reason: true,
+          status: true,
+          decision: true,
+          supervisorNotes: true,
+          updatedAt: true,
+          supervisor: { select: { name: true } },
+        },
+      },
+    },
+  });
+
+  // --- Statistics derived from the same dataset ---
+  const statistics = {
+    totalCrossings: logs.length,
+    verified: logs.filter((l) => l.finalDecision === "VERIFIED").length,
+    rejected: logs.filter((l) => l.finalDecision === "REJECTED").length,
+    pendingReview: logs.filter((l) => l.finalDecision === "PENDING_SUPERVISOR_REVIEW").length,
+    entries: logs.filter((l) => l.direction === "ENTRY").length,
+    exits: logs.filter((l) => l.direction === "EXIT").length,
+    manualReviews: logs.filter((l) => l.manualReviewRequest !== null).length,
+    watchlistWarnings: logs.filter((l) => l.alertStatusAtVerification === "WARNING").length,
+    watchlistCritical: logs.filter((l) => l.alertStatusAtVerification === "CRITICAL").length,
+  };
+
+  // --- Chart aggregations derived from the same dataset ---
+  const chartData = {
+    decisions: {
+      verified: statistics.verified,
+      pending: statistics.pendingReview,
+      rejected: statistics.rejected,
+    },
+    directionBreakdown: { entry: statistics.entries, exit: statistics.exits },
+    watchlistBreakdown: {
+      none: logs.filter((l) => (l.alertStatusAtVerification ?? "NONE") === "NONE").length,
+      warning: statistics.watchlistWarnings,
+      critical: statistics.watchlistCritical,
+    },
+    byCheckpoint: Array.from(
+      logs.reduce((map, l) => {
+        const name = l.checkpoint?.name ?? "Unknown";
+        map.set(name, (map.get(name) ?? 0) + 1);
+        return map;
+      }, new Map<string, number>()),
+    )
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count),
+    overTime: Array.from(
+      logs.reduce((map, l) => {
+        const day = l.timestamp.toISOString().slice(0, 10);
+        map.set(day, (map.get(day) ?? 0) + 1);
+        return map;
+      }, new Map<string, number>()),
+    )
+      .map(([date, count]) => ({ date, count }))
+      .sort((a, b) => a.date.localeCompare(b.date)),
+  };
+
+  // --- Trimmed historical record snapshot for the viewer/export ---
+  const recordsSnapshot = logs.map((l) => ({
+    verificationId: l.id,
+    timestamp: l.timestamp.toISOString(),
+    direction: l.direction,
+    fingerprintScore: l.fingerprintScore,
+    irisScore: l.irisScore,
+    finalScore: l.finalScore,
+    threshold: l.threshold,
+    systemDecision: l.systemDecision,
+    finalDecision: l.finalDecision,
+    decisionReason: l.decisionReason,
+    alertStatusAtVerification: l.alertStatusAtVerification ?? "NONE",
+    alertReasonAtVerification: l.alertReasonAtVerification,
+    checkpointName: l.checkpoint?.name ?? null,
+    checkpointLocation: l.checkpoint?.location ?? null,
+    officerName: l.officer?.name ?? null,
+    travelerName: l.traveler?.fullName ?? null,
+    travelerFan: l.traveler?.fan ?? null,
+    travelerNationality: l.traveler?.nationality ?? null,
+    manualReview: l.manualReviewRequest
+      ? {
+          status: l.manualReviewRequest.status,
+          reason: l.manualReviewRequest.reason,
+          decision: l.manualReviewRequest.decision,
+          supervisorNotes: l.manualReviewRequest.supervisorNotes,
+          supervisorName: l.manualReviewRequest.supervisor?.name ?? null,
+          decidedAt: l.manualReviewRequest.updatedAt.toISOString(),
+        }
+      : null,
+  }));
+
+  // --- Human-readable filter labels persisted with the snapshot ---
+  let officerLabel = "All Officers";
+  if (filters.officerId !== undefined) {
+    const u = await prisma.user.findUnique({ where: { id: filters.officerId }, select: { name: true } });
+    officerLabel = u?.name ?? `Officer #${filters.officerId}`;
+  }
+  let checkpointLabel = "All Checkpoints";
+  if (filters.checkpointId !== undefined) {
+    const c = await prisma.checkpoint.findUnique({ where: { id: filters.checkpointId }, select: { name: true } });
+    checkpointLabel = c?.name ?? `Checkpoint #${filters.checkpointId}`;
+  }
+
+  const filterLabels = {
+    officer: officerLabel,
+    checkpoint: checkpointLabel,
+    direction: filters.direction ?? "All Directions",
+    decision: filters.decision ?? "All Decisions",
+    watchlistStatus: filters.alertStatus ?? "All Statuses",
+  };
+
+  const report = await prisma.report.create({
+    data: {
+      reportType: "BORDER_CROSSING",
+      reportTitle,
+      startDate: start,
+      endDate: end,
+      generatedBy,
+      recordCount: recordsSnapshot.length,
+      filters: { ...filters, labels: filterLabels } as any,
+      summaryData: statistics as any,
+      chartData: chartData as any,
+      recordsData: recordsSnapshot as any,
+    },
+    include: {
+      generatedByUser: { select: { id: true, name: true, email: true, role: true } },
     },
   });
 

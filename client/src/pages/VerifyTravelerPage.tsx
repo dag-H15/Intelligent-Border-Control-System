@@ -115,13 +115,17 @@ export function VerifyTravelerPage() {
       setFpQuality(res);
       if (!res.acceptable) {
         setFpAttempts((prev) => prev + 1);
-        setVerifyError(`Fingerprint quality is poor (${res.score}%). Please retry.`);
+        setVerifyError(`Fingerprint quality is poor (${res.score}%). Please retry with a clearer image.`);
       } else {
         setVerifyError('');
       }
     } catch (err: any) {
-      console.error(err);
-      setVerifyError('Failed to run quality check on fingerprint.');
+      console.error('Fingerprint quality check error:', err);
+      const errorMessage = err.response?.data?.message || err.message || 'Failed to run quality check on fingerprint.';
+      setVerifyError(`Fingerprint Quality Check Error: ${errorMessage}. Please check if the AI service is running.`);
+      setFpQuality(null); // Don't set as acceptable on error
+      setFingerprintSource(null); // Clear the bad upload
+      if (fpInputRef.current) fpInputRef.current.value = '';
     } finally {
       setQualityChecking(false);
     }
@@ -146,13 +150,17 @@ export function VerifyTravelerPage() {
       setIrisQuality(res);
       if (!res.acceptable) {
         setIrisAttempts((prev) => prev + 1);
-        setVerifyError(`Iris quality is poor (${res.score}%). Please retry.`);
+        setVerifyError(`Iris quality is poor (${res.score}%). Please retry with a clearer image.`);
       } else {
         setVerifyError('');
       }
     } catch (err: any) {
-      console.error(err);
-      setVerifyError('Failed to run quality check on iris.');
+      console.error('Iris quality check error:', err);
+      const errorMessage = err.response?.data?.message || err.message || 'Failed to run quality check on iris.';
+      setVerifyError(`Iris Quality Check Error: ${errorMessage}. Please check if the AI service is running.`);
+      setIrisQuality(null); // Don't set as acceptable on error
+      setIrisSource(null); // Clear the bad upload
+      if (irisInputRef.current) irisInputRef.current.value = '';
     } finally {
       setQualityChecking(false);
     }
@@ -196,6 +204,20 @@ export function VerifyTravelerPage() {
     setVerifyError('');
     setIrisSource(file);
     checkIrisQuality(file);
+  };
+
+  const clearFingerprint = () => {
+    setFingerprintSource(null);
+    setFpQuality(null);
+    setFpAttempts(0);
+    if (fpInputRef.current) fpInputRef.current.value = '';
+  };
+
+  const clearIris = () => {
+    setIrisSource(null);
+    setIrisQuality(null);
+    setIrisAttempts(0);
+    if (irisInputRef.current) irisInputRef.current.value = '';
   };
 
   const captureFingerprint = async () => {
@@ -254,7 +276,7 @@ export function VerifyTravelerPage() {
       if (data.threshold !== undefined) {
         setUsedThreshold(data.threshold);
       }
-      setDecisionReason(data.decisionReason);
+      setDecisionReason(data.decisionReason ?? undefined);
       setStage('result');
     } catch (err: unknown) {
       const msg =
@@ -480,6 +502,7 @@ export function VerifyTravelerPage() {
               fileName={typeof fingerprintSource === 'string' ? 'Scanner fingerprint captured' : fingerprintSource?.name}
               actionLabel={captureMode === 'SCANNER' ? 'Capture Fingerprint' : 'Choose Image'}
               onAction={captureFingerprint}
+              onClear={clearFingerprint}
               quality={fpQuality}
               attempts={fpAttempts}
             />
@@ -497,6 +520,7 @@ export function VerifyTravelerPage() {
               fileName={typeof irisSource === 'string' ? 'Scanner iris captured' : irisSource?.name}
               actionLabel={captureMode === 'SCANNER' ? 'Capture Iris' : 'Choose Image'}
               onAction={captureIris}
+              onClear={clearIris}
               quality={irisQuality}
               attempts={irisAttempts}
             />
@@ -550,8 +574,10 @@ export function VerifyTravelerPage() {
               !irisSource ||
               stage === 'processing' ||
               qualityChecking ||
-              (fpQuality && !fpQuality.acceptable && fpAttempts < 3) ||
-              (irisQuality && !irisQuality.acceptable && irisAttempts < 3)
+              !fpQuality ||
+              !irisQuality ||
+              !fpQuality.acceptable ||
+              !irisQuality.acceptable
             }
             className="mt-4 btn bg-accent-green text-white hover:bg-green-700 disabled:bg-navy-200 disabled:text-navy-400 disabled:cursor-not-allowed px-10 py-4 text-base font-semibold tracking-wide"
           >
@@ -565,10 +591,12 @@ export function VerifyTravelerPage() {
             <p className="mt-3 text-xs text-navy-400">Upload both biometric images to enable verification.</p>
           ) : qualityChecking ? (
             <p className="mt-3 text-xs text-accent-blue animate-pulse">Waiting for biometric quality checks to complete...</p>
-          ) : (fpQuality && !fpQuality.acceptable && fpAttempts < 3) || (irisQuality && !irisQuality.acceptable && irisAttempts < 3) ? (
-            <p className="mt-3 text-xs text-accent-red font-semibold">Biometric scans do not meet quality standards. Please capture/upload again.</p>
+          ) : !fpQuality || !irisQuality ? (
+            <p className="mt-3 text-xs text-accent-red font-semibold">Quality check must complete successfully before verification.</p>
+          ) : !fpQuality.acceptable || !irisQuality.acceptable ? (
+            <p className="mt-3 text-xs text-accent-red font-semibold">Biometric scans do not meet quality standards. Please re-upload clearer images.</p>
           ) : (
-            <p className="mt-3 text-xs text-navy-400">AI will compare against stored biometric templates (1:1 verification).</p>
+            <p className="mt-3 text-xs text-navy-400">✓ Quality checks passed. AI will compare against stored biometric templates (1:1 verification).</p>
           )}
         </div>
       )}
@@ -656,6 +684,7 @@ function UploadCard({
   fileName,
   actionLabel,
   onAction,
+  onClear,
   quality,
   attempts,
 }: {
@@ -665,6 +694,7 @@ function UploadCard({
   fileName?: string;
   actionLabel: string;
   onAction: () => void;
+  onClear: () => void;
   quality?: { score: number; acceptable: boolean } | null;
   attempts?: number;
 }) {
@@ -679,7 +709,7 @@ function UploadCard({
           <div className="text-sm font-semibold text-navy-800">{title}</div>
           <div className="text-xs text-navy-400 mt-0.5">{hint}</div>
           {done ? (
-            <div className="mt-3 space-y-1">
+            <div className="mt-3 space-y-2">
               <div className="text-xs font-medium text-navy-700 flex items-center gap-1.5">
                 <Paperclip size={13} /> {fileName}
               </div>
@@ -688,6 +718,19 @@ function UploadCard({
                   Quality: {quality.score}% · {quality.acceptable ? 'ACCEPTABLE' : `POOR QUALITY (${attempts}/3 attempts)`}
                 </div>
               )}
+              {quality && !quality.acceptable && (
+                <div className="text-[10px] text-accent-red font-medium">
+                  ⚠ Image quality check failed. Upload a clearer image with better lighting and focus.
+                </div>
+              )}
+              <div className="flex gap-2">
+                <button onClick={onAction} className="btn-secondary text-xs px-3 py-1.5 flex items-center gap-1">
+                  <RotateCcw size={12} /> Re-upload
+                </button>
+                <button onClick={onClear} className="btn-secondary text-xs px-3 py-1.5 flex items-center gap-1">
+                  <XCircle size={12} /> Clear
+                </button>
+              </div>
             </div>
           ) : (
             <button onClick={onAction} className="mt-3 btn-secondary text-xs px-3 py-2">
@@ -742,8 +785,15 @@ function ResultPanel({
             <div className="h-14 w-14 rounded-full bg-accent-red text-white flex items-center justify-center mx-auto">
               <XCircle size={30} />
             </div>
-            <h3 className="mt-3 text-xl font-bold text-accent-red">REJECTED</h3>
-            <p className="text-sm text-red-700 mt-1">Biometric match below acceptance threshold ({usedThreshold}%) · Automatic rejection</p>
+            <h3 className="mt-3 text-xl font-bold text-accent-red">
+              {traveler?.alertStatus === 'CRITICAL' ? 'BLOCKED' : 'REJECTED'}
+            </h3>
+            <p className="text-sm text-red-700 mt-1">
+              {traveler?.alertStatus === 'CRITICAL' 
+                ? 'Traveler has CRITICAL alert status · Border crossing not permitted'
+                : `Biometric match below acceptance threshold (${usedThreshold}%) · Automatic rejection`
+              }
+            </p>
             {decisionReason && (
               <p className="text-xs text-red-600 mt-2 font-medium">Reason: {decisionReason}</p>
             )}
@@ -755,7 +805,12 @@ function ResultPanel({
               <Clock size={30} />
             </div>
             <h3 className="mt-3 text-xl font-bold text-accent-amber">PENDING SUPERVISOR REVIEW</h3>
-            <p className="text-sm text-amber-700 mt-1">Confidence in review range (85–{usedThreshold}%) · Awaiting Supervisor Decision</p>
+            <p className="text-sm text-amber-700 mt-1">
+              {traveler?.alertStatus === 'WARNING' 
+                ? `Biometric passed but traveler has WARNING alert status · Requires supervisor authorization`
+                : `Confidence in review range (${usedThreshold - 10}%–${usedThreshold - 1}%) · Awaiting Supervisor Decision`
+              }
+            </p>
             {decisionReason && (
               <p className="text-xs text-amber-600 mt-2 font-medium">Reason: {decisionReason}</p>
             )}

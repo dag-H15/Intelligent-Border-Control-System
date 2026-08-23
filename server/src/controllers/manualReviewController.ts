@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import multer from "multer";
 import { AuditLevel, ManualReviewDecision, ManualReviewReason } from "../../generated/prisma";
-import { createAuditLog, getClientIp } from "../services/auditService";
+import { logAuditEvent, getClientIp, AuditResult } from "../services/auditService";
 import { createManualReviewRequest, decideManualReview, listPendingManualReviews, getManualReviewHistory } from "../services/manualReviewService";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { files: 5, fileSize: 10 * 1024 * 1024 } });
@@ -9,7 +9,8 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { files: 5, fil
 export const manualReviewUpload = upload.array("attachments", 5);
 
 const VALID_REASONS: ManualReviewReason[] = ["FINGERPRINT_INJURY", "IRIS_INJURY", "BIOMETRIC_UNAVAILABLE"];
-const VALID_DECISIONS: ManualReviewDecision[] = ["APPROVED_OVERRIDE", "REJECTED", "REQUEST_RE_ENROLLMENT"];
+// Re-enrollment is intentionally NOT offered as a supervisor decision.
+const VALID_DECISIONS: ManualReviewDecision[] = ["APPROVED_OVERRIDE", "REJECTED"];
 
 export async function create(req: Request, res: Response, next: NextFunction) {
   try {
@@ -33,12 +34,23 @@ export async function create(req: Request, res: Response, next: NextFunction) {
       files,
     });
 
-    await createAuditLog(
-      req.user!.userId,
-      `Manual review request created for traveler #${request.travelerId} (${reason})`,
-      getClientIp(req),
-      AuditLevel.WARNING
-    );
+    await logAuditEvent({
+      userId: req.user!.userId,
+      action: "Manual review created",
+      ipAddress: getClientIp(req),
+      severity: AuditLevel.WARNING,
+      result: AuditResult.PENDING,
+      resourceType: "ManualReviewRequest",
+      resourceId: String(request.id),
+      description: `Manual review requested for ${request.traveler.fullName} (FAN ${request.traveler.fan}) — reason: ${reason}${request.verificationId ? `, verification #${request.verificationId}` : ""}`,
+      metadata: {
+        travelerId: request.travelerId,
+        fan: request.traveler.fan,
+        reason,
+        officerNotes,
+        verificationId: request.verificationId ?? null,
+      },
+    });
 
     return res.status(201).json({ manualReviewRequest: request });
   } catch (err) {
@@ -79,12 +91,41 @@ export async function decide(req: Request, res: Response, next: NextFunction) {
       notes,
     });
 
-    await createAuditLog(
-      req.user!.userId,
-      `Manual review ${decision} for traveler #${request.travelerId}`,
-      getClientIp(req),
-      AuditLevel.WARNING
-    );
+    const severity =
+      decision === "APPROVED_OVERRIDE"
+        ? AuditLevel.INFO
+        : AuditLevel.WARNING;
+
+    const result =
+      decision === "APPROVED_OVERRIDE"
+        ? AuditResult.APPROVED
+        : decision === "REJECTED"
+          ? AuditResult.REJECTED
+          : AuditResult.SUCCESS;
+
+    await logAuditEvent({
+      userId: req.user!.userId,
+      action:
+        decision === "APPROVED_OVERRIDE"
+          ? "Manual review approved"
+          : decision === "REJECTED"
+            ? "Manual review rejected"
+            : "Re-enrollment requested",
+      ipAddress: getClientIp(req),
+      severity,
+      result,
+      resourceType: "ManualReviewRequest",
+      resourceId: String(request.id),
+      description: `Supervisor ${decision} manual review #${request.id} for ${request.traveler.fullName} (FAN ${request.traveler.fan})${request.verificationId ? `, verification #${request.verificationId}` : ""}. Notes: ${notes}`,
+      metadata: {
+        travelerId: request.travelerId,
+        fan: request.traveler.fan,
+        decision,
+        supervisorNotes: notes,
+        verificationId: request.verificationId ?? null,
+        newVerificationDecision: request.decision ?? null,
+      },
+    });
 
     return res.status(200).json({ manualReviewRequest: request });
   } catch (err) {

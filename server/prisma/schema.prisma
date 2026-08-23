@@ -149,17 +149,23 @@ model ManualReviewRequest {
 }
 
 model AuditLog {
-  id        Int      @id @default(autoincrement())
-  userId    Int?     @map("user_id")
-  action    String
-  level     AuditLevel @default(INFO)
-  ipAddress String   @map("ip_address")
-  timestamp DateTime @default(now())
-  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  id           Int        @id @default(autoincrement())
+  userId       Int?       @map("user_id")
+  action       String
+  level        AuditLevel @default(INFO)
+  ipAddress    String     @map("ip_address")
+  timestamp    DateTime   @default(now())
+  resourceType String?    @map("resource_type")
+  resourceId   String?    @map("resource_id")
+  result       String?
+  description  String?
+  metadata     Json?
+  user         User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([level])
   @@index([timestamp])
+  @@index([result])
   @@map("audit_logs")
 }
 
@@ -180,6 +186,13 @@ model Report {
   
   // Store record count
   recordCount     Int        @default(0) @map("record_count")
+  
+  // Historical snapshot of chart aggregations at generation time
+  chartData       Json?
+  
+  // Historical snapshot of the detailed verification records at generation time,
+  // so an old report stays historically accurate even if live data changes later.
+  recordsData     Json?
   
   generatedByUser User       @relation(fields: [generatedBy], references: [id])
 

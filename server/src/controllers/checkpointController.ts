@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import prisma from "../config/prisma";
-import { createAuditLog, getClientIp } from "../services/auditService";
+import { logAuditEvent, getClientIp, AuditResult } from "../services/auditService";
 import { AuditLevel } from "../../generated/prisma";
 
 /** GET /api/checkpoints  — all active checkpoints (officers + supervisors) */
@@ -50,12 +50,17 @@ export async function createCheckpoint(req: Request, res: Response, next: NextFu
       },
     });
 
-    await createAuditLog(
-      req.user!.userId,
-      `Created checkpoint: ${checkpoint.name} (id=${checkpoint.id})`,
-      getClientIp(req),
-      AuditLevel.INFO
-    );
+    await logAuditEvent({
+      userId: req.user!.userId,
+      action: "Checkpoint created",
+      ipAddress: getClientIp(req),
+      severity: AuditLevel.INFO,
+      result: AuditResult.SUCCESS,
+      resourceType: "Checkpoint",
+      resourceId: String(checkpoint.id),
+      description: `Created checkpoint "${checkpoint.name}"${checkpoint.location ? ` (${checkpoint.location})` : ""}`,
+      metadata: { name: checkpoint.name, location: checkpoint.location ?? null },
+    });
 
     return res.status(201).json({ checkpoint });
   } catch (err) {
@@ -96,12 +101,32 @@ export async function updateCheckpoint(req: Request, res: Response, next: NextFu
       },
     });
 
-    await createAuditLog(
-      req.user!.userId,
-      `Updated checkpoint id=${id}: ${JSON.stringify({ name: trimmedName, isActive })}`,
-      getClientIp(req),
-      AuditLevel.INFO
-    );
+    // Record each field that actually changed as previous → new
+    const changes: Array<{ field: string; previous: unknown; new: unknown }> = [];
+    if (trimmedName !== undefined && trimmedName !== existing.name) {
+      changes.push({ field: "Name", previous: existing.name, new: trimmedName });
+    }
+    if (location !== undefined && (String(location).trim() || null) !== existing.location) {
+      changes.push({ field: "Location", previous: existing.location, new: String(location).trim() || null });
+    }
+    if (isActive !== undefined && Boolean(isActive) !== existing.isActive) {
+      changes.push({ field: "Active Status", previous: existing.isActive ? "ACTIVE" : "INACTIVE", new: Boolean(isActive) ? "ACTIVE" : "INACTIVE" });
+    }
+
+    await logAuditEvent({
+      userId: req.user!.userId,
+      action: "Checkpoint updated",
+      ipAddress: getClientIp(req),
+      severity: AuditLevel.INFO,
+      result: AuditResult.SUCCESS,
+      resourceType: "Checkpoint",
+      resourceId: String(id),
+      description:
+        changes.length > 0
+          ? `Updated checkpoint "${checkpoint.name}": ${changes.map((c) => `${c.field} (${String(c.previous)} → ${String(c.new)})`).join(", ")}`
+          : `Updated checkpoint "${checkpoint.name}" without value changes`,
+      metadata: { changes },
+    });
 
     return res.status(200).json({ checkpoint });
   } catch (err) {
@@ -128,12 +153,19 @@ export async function deactivateCheckpoint(req: Request, res: Response, next: Ne
       data: { isActive: false },
     });
 
-    await createAuditLog(
-      req.user!.userId,
-      `Deactivated checkpoint: ${checkpoint.name} (id=${id})`,
-      getClientIp(req),
-      AuditLevel.WARNING
-    );
+    await logAuditEvent({
+      userId: req.user!.userId,
+      action: "Checkpoint deactivated",
+      ipAddress: getClientIp(req),
+      severity: AuditLevel.WARNING,
+      result: AuditResult.SUCCESS,
+      resourceType: "Checkpoint",
+      resourceId: String(id),
+      description: `Deactivated checkpoint "${checkpoint.name}" (id=${id})`,
+      metadata: {
+        changes: [{ field: "Active Status", previous: "ACTIVE", new: "INACTIVE" }],
+      },
+    });
 
     return res.status(200).json({ checkpoint, message: "Checkpoint deactivated" });
   } catch (err) {

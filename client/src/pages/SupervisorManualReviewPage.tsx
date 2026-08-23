@@ -17,7 +17,7 @@ export function SupervisorManualReviewPage() {
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
 
   // Decision State
-  const [decision, setDecision] = useState<'APPROVED_OVERRIDE' | 'REJECTED' | 'REQUEST_RE_ENROLLMENT' | null>(null);
+  const [decision, setDecision] = useState<'APPROVED_OVERRIDE' | 'REJECTED' | null>(null);
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
@@ -27,7 +27,7 @@ export function SupervisorManualReviewPage() {
   const [historyLoading, setHistoryLoading] = useState(true);
   const [historyError, setHistoryError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'APPROVED' | 'REJECTED' | 'RE_ENROLLMENT_REQUESTED'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'APPROVED' | 'REJECTED'>('all');
 
   useEffect(() => {
     loadPending();
@@ -231,7 +231,6 @@ export function SupervisorManualReviewPage() {
                       <option value="all">All Decisions</option>
                       <option value="APPROVED">Approved</option>
                       <option value="REJECTED">Rejected</option>
-                      <option value="RE_ENROLLMENT_REQUESTED">Re-enrollment Requested</option>
                     </select>
                   </div>
                 </div>
@@ -373,6 +372,12 @@ export function SupervisorManualReviewPage() {
                             <span className="text-navy-500 uppercase tracking-wider font-semibold">Threshold Used</span>
                             <span className="font-bold text-navy-800">{c.verification.threshold || 95}%</span>
                           </div>
+                          {c.verification.decisionReason && (
+                            <div className="flex flex-col gap-1 text-xs pt-1 border-t border-navy-200">
+                              <span className="text-navy-500 uppercase tracking-wider font-semibold">Decision Reason</span>
+                              <span className="font-medium text-navy-700 text-[11px]">{c.verification.decisionReason}</span>
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -431,9 +436,6 @@ export function SupervisorManualReviewPage() {
                       </button>
                       <button onClick={() => setDecision('REJECTED')} className={`btn-secondary ${decision === 'REJECTED' ? 'bg-accent-red text-white hover:bg-red-600' : ''}`}>
                         <XCircle size={16} /> Reject
-                      </button>
-                      <button onClick={() => setDecision('REQUEST_RE_ENROLLMENT')} className={`btn-secondary ${decision === 'REQUEST_RE_ENROLLMENT' ? 'bg-navy-800 text-white hover:bg-navy-700' : ''}`}>
-                        <MessageSquare size={16} /> Request Re-enrollment
                       </button>
                     </div>
                   </div>

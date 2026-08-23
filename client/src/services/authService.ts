@@ -21,4 +21,7 @@ export const authService = {
 
   register: (payload: RegisterPayload) =>
     api.post<LoginResponse>('/auth/register', payload).then((r) => r.data),
+
+  /** Audits "User logged out" on the server. Fire-and-forget on the client. */
+  logout: () => api.post('/auth/logout').then((r) => r.data),
 };

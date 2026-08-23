@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { userService, type UserRecord } from '../services/userService';
-import { auditService, type AuditEntry } from '../services/auditService';
+import { auditService, formatAuditTimestamp, type AuditEvent } from '../services/auditService';
 import api from '../services/api';
 import { Users, Shield, ScrollText, Lock, AlertTriangle, ShieldAlert, Loader2, AlertCircle } from 'lucide-react';
 
@@ -12,7 +12,7 @@ interface Props {
 
 export function AdminDashboard({ onGoUsers, onGoAudit, onGoSettings }: Props) {
   const [users, setUsers] = useState<UserRecord[]>([]);
-  const [logs, setLogs] = useState<AuditEntry[]>([]);
+  const [logs, setLogs] = useState<AuditEvent[]>([]);
   const [settings, setSettings] = useState({
     approvalThreshold: 95,
     reviewRangeMin: 85,
@@ -26,7 +26,7 @@ export function AdminDashboard({ onGoUsers, onGoAudit, onGoSettings }: Props) {
   useEffect(() => {
     Promise.all([
       userService.getUsers().catch(() => []),
-      auditService.getLogs().catch(() => []),
+      auditService.getLogs({ limit: 50 }).then((d) => d.auditLogs).catch(() => []),
       api.get('/settings').then((r) => r.data).catch(() => null),
     ])
       .then(([u, l, s]) => {
@@ -45,12 +45,12 @@ export function AdminDashboard({ onGoUsers, onGoAudit, onGoSettings }: Props) {
 
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
-  const todaysLogs = logs.filter((entry) => new Date(entry.time) >= startOfToday);
+  const todaysLogs = logs.filter((entry) => new Date(entry.timestamp) >= startOfToday);
   const officers = users.filter((u) => u.role === 'OFFICER').length;
   const supervisors = users.filter((u) => u.role === 'SUPERVISOR').length;
-  const infoCount = todaysLogs.filter((l) => l.severity === 'info').length;
-  const warningCount = todaysLogs.filter((l) => l.severity === 'warning').length;
-  const criticalCount = todaysLogs.filter((l) => l.severity === 'critical').length;
+  const infoCount = todaysLogs.filter((l) => l.level === 'INFO').length;
+  const warningCount = todaysLogs.filter((l) => l.level === 'WARNING').length;
+  const criticalCount = todaysLogs.filter((l) => l.level === 'CRITICAL').length;
   const lockedAccounts = users.filter((u) => (u as any).isLocked).length;
 
   return (
@@ -130,9 +130,9 @@ export function AdminDashboard({ onGoUsers, onGoAudit, onGoSettings }: Props) {
                   <div key={l.id} className="flex items-start gap-3">
                     <span
                       className={`mt-1.5 h-2 w-2 rounded-full shrink-0 ${
-                        l.severity === 'critical'
+                        l.level === 'CRITICAL'
                           ? 'bg-accent-red'
-                          : l.severity === 'warning'
+                          : l.level === 'WARNING'
                           ? 'bg-accent-amber'
                           : 'bg-navy-400'
                       }`}
@@ -140,7 +140,7 @@ export function AdminDashboard({ onGoUsers, onGoAudit, onGoSettings }: Props) {
                     <div className="flex-1 min-w-0">
                       <div className="text-sm text-navy-800 truncate">{l.action}</div>
                       <div className="text-xs text-navy-400">
-                        {l.user} · {l.time} · {l.ip}
+                        {l.user?.name ?? 'System'} · {formatAuditTimestamp(l.timestamp)} · {l.ipAddress}
                       </div>
                     </div>
                   </div>

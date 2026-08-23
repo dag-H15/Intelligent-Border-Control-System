@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
+import prisma from "../config/prisma";
 import { registerUser, loginUser } from "../services/authService";
-import { createAuditLog, getClientIp } from "../services/auditService";
+import { logAuditEvent, getClientIp, AuditResult } from "../services/auditService";
 import { AuditLevel, Role } from "../../generated/prisma";
 
 const VALID_ROLES: Role[] = ["OFFICER", "SUPERVISOR", "ADMIN"];
@@ -27,22 +28,29 @@ export async function register(req: Request, res: Response, next: NextFunction) 
 
     const user = await registerUser({ name, email, password, role });
 
-    await createAuditLog(
-      req.user!.userId,
-      `Registered new user (${role}): ${email}`,
-      getClientIp(req),
-      AuditLevel.INFO
-    );
+    await logAuditEvent({
+      userId: req.user!.userId,
+      action: "User account created",
+      ipAddress: getClientIp(req),
+      severity: AuditLevel.INFO,
+      result: AuditResult.SUCCESS,
+      resourceType: "User",
+      resourceId: user.id,
+      description: `New ${role} account created for ${name} (${email})`,
+    });
 
     return res.status(201).json({ user });
   } catch (err) {
     if ((err as any)?.statusCode === 409) {
-      await createAuditLog(
-        req.user!.userId,
-        `Duplicate registration attempt for ${req.body.email}`,
-        getClientIp(req),
-        AuditLevel.WARNING
-      );
+      await logAuditEvent({
+        userId: req.user?.userId ?? null,
+        action: "Duplicate registration attempt",
+        ipAddress: getClientIp(req),
+        severity: AuditLevel.WARNING,
+        result: AuditResult.FAILED,
+        resourceType: "User",
+        description: `Registration rejected — an account with email ${req.body.email} already exists`,
+      });
     }
     next(err);
   }
@@ -62,7 +70,16 @@ export async function login(req: Request, res: Response, next: NextFunction) {
 
     const result = await loginUser({ email, password });
 
-    await createAuditLog(result.user.id, "User logged in", getClientIp(req), AuditLevel.INFO);
+    await logAuditEvent({
+      userId: result.user.id,
+      action: "User logged in",
+      ipAddress: getClientIp(req),
+      severity: AuditLevel.INFO,
+      result: AuditResult.SUCCESS,
+      resourceType: "User",
+      resourceId: result.user.id,
+      description: `${result.user.role} ${result.user.name} authenticated successfully`,
+    });
 
     return res.status(200).json({
       token: result.token,
@@ -74,20 +91,64 @@ export async function login(req: Request, res: Response, next: NextFunction) {
   } catch (err) {
     const statusCode = (err as any)?.statusCode;
     if (statusCode === 423) {
-      await createAuditLog(
-        (err as any).auditUserId ?? null,
-        `Account temporarily locked due to multiple failed login attempts for ${email}`,
-        getClientIp(req),
-        AuditLevel.CRITICAL
-      );
+      await logAuditEvent({
+        userId: (err as any).auditUserId ?? null,
+        action: "Account locked after repeated failed logins",
+        ipAddress: getClientIp(req),
+        severity: AuditLevel.CRITICAL,
+        result: AuditResult.DENIED,
+        resourceType: "User",
+        description: `Account temporarily locked due to multiple failed login attempts for ${email}`,
+      });
     } else if (statusCode === 401) {
-      await createAuditLog(
-        (err as any).auditUserId ?? null,
-        `Failed login attempt for ${email}`,
-        getClientIp(req),
-        AuditLevel.WARNING
-      );
+      await logAuditEvent({
+        userId: (err as any).auditUserId ?? null,
+        action: "Failed login attempt",
+        ipAddress: getClientIp(req),
+        severity: AuditLevel.WARNING,
+        result: AuditResult.FAILED,
+        resourceType: "User",
+        description: `Invalid credentials supplied for ${email}`,
+      });
     }
+    next(err);
+  }
+}
+
+/**
+ * POST /api/auth/logout
+ * Audits a deliberate logout. The client clears its token afterwards.
+ */
+export async function logout(req: Request, res: Response, next: NextFunction) {
+  try {
+    const userId = req.user?.userId;
+    let userName = "";
+    let userRole = "";
+    if (userId !== undefined) {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { name: true, role: true },
+      });
+      userName = user?.name ?? "";
+      userRole = user?.role ?? "";
+    }
+
+    await logAuditEvent({
+      userId: userId ?? null,
+      action: "User logged out",
+      ipAddress: getClientIp(req),
+      severity: AuditLevel.INFO,
+      result: AuditResult.SUCCESS,
+      resourceType: "User",
+      resourceId: userId ?? null,
+      description:
+        userName && userRole
+          ? `${userRole} ${userName} ended their session`
+          : "Session ended",
+    });
+
+    return res.status(200).json({ success: true });
+  } catch (err) {
     next(err);
   }
 }
