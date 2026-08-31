@@ -10,14 +10,7 @@ export function Logo({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) {
   );
 }
 
-export function SystemMark({ compact = false, collapsed = false }: { compact?: boolean; collapsed?: boolean }) {
-  if (collapsed) {
-    return (
-      <div className="flex items-center justify-center w-full" title="IABC SYSTEM - Border Control">
-        <Logo size="md" />
-      </div>
-    );
-  }
+export function SystemMark({ compact = false }: { compact?: boolean }) {
   return (
     <div className="flex items-center gap-3">
       <Logo size={compact ? 'sm' : 'md'} />

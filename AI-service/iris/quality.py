@@ -7,43 +7,17 @@ import numpy as np
 from utils.image_processing import decode_base64_image
 
 
-def check_iris_quality(payload: str | np.ndarray) -> dict:
+def check_iris_quality(payload: str) -> dict:
     """
     Evaluate sharpness, contrast, and circular boundary detection heuristic for iris images.
     """
     try:
         img = decode_base64_image(payload)
         if img is None:
-            if isinstance(payload, str) and (
-                payload.startswith("scanner-iris-") or
-                payload.startswith("iris-template-") or
-                payload.startswith("mock_captured_iris_")
-            ):
-                return {
-                    "score": 100.0,
-                    "acceptable": True,
-                    "biometricType": "iris",
-                    "qualityStatus": "GOOD",
-                    "issues": [],
-                    "details": {
-                        "sharpness": 100.0,
-                        "contrast": 100.0,
-                        "heuristic": 100.0,
-                        "laplacianVariance": 150.0,
-                    },
-                }
             return {
                 "score": 0.0,
                 "acceptable": False,
-                "biometricType": "iris",
-                "qualityStatus": "POOR",
-                "issues": ["Failed to decode base64 image or invalid format."],
-                "details": {
-                    "sharpness": 0.0,
-                    "contrast": 0.0,
-                    "heuristic": 0.0,
-                    "laplacianVariance": 0.0,
-                },
+                "error": "Failed to decode base64 image or invalid format.",
             }
 
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img

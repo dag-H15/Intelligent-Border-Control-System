@@ -31,23 +31,13 @@ def cosine_similarity(v1: list[float], v2: list[float]) -> float:
 
 def compute_dataset_matching_score(captured_token: str, ref_token: str) -> float:
     """
-    Calculates deterministic matching score for simulation tokens.
-    Same subject ID / matching token -> 98.5 (Verified Match).
-    Different subject ID / distinct token -> 30.0 (Distinct Non-Match).
+    Calculates deterministic matching score based on dataset embeddings similarity.
+    Mapped to 70.0 - 98.5 range for valid matching biometrics, or 40-70 for mismatched.
     """
-    if not captured_token or not ref_token:
-        return 0.0
-
-    t1 = captured_token.strip().lower()
-    t2 = ref_token.strip().lower()
-
-    if t1 == t2:
-        return 98.5
-
-    v1 = generate_embedding_from_string(t1)
-    v2 = generate_embedding_from_string(t2)
+    v1 = generate_embedding_from_string(captured_token)
+    v2 = generate_embedding_from_string(ref_token)
     sim = cosine_similarity(v1, v2)
     
-    # Non-matching token score in reject range (25.0 - 45.0)
-    score = 25.0 + (sim * 20.0)
+    # Base score range
+    score = 70.0 + (sim * 28.5)
     return round(score, 2)

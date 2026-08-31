@@ -3,13 +3,20 @@ Services Matcher — Shared Orchestration for Fingerprint and Iris Biometrics
 """
 
 from fingerprint.engine import enroll_fingerprint, verify_fingerprint
-from iris.engine import enroll_iris, verify_iris
+from iris.engine import IrisEngine
+
+iris_engine = IrisEngine()
 
 
 def extract_template(payload: str, biometric_type: str) -> dict:
     b_type = (biometric_type or "fingerprint").lower()
     if b_type == "iris":
-        return enroll_iris(payload)
+        template = iris_engine.extract_template(payload)
+        return {
+            "template": template,
+            "biometricType": "iris",
+            "encoding": "base64",
+        }
     return enroll_fingerprint(payload)
 
 
@@ -21,7 +28,12 @@ def compare_templates(
 ) -> dict:
     b_type = (biometric_type or "fingerprint").lower()
     if b_type == "iris":
-        return verify_iris(captured_data, stored_template, threshold)
+        score = iris_engine.compare_template(captured_data, stored_template)
+        return {
+            "score": score,
+            "match": score >= threshold,
+            "biometricType": "iris",
+        }
     return verify_fingerprint(captured_data, stored_template, threshold)
 
 
