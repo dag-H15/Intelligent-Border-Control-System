@@ -1,7 +1,11 @@
 from models.predictor import predictor
+from fingerprint.engine import enroll_fingerprint, verify_fingerprint
 
 
 def extract_template(payload: str, biometric_type: str) -> dict:
+    if biometric_type.lower() == "fingerprint":
+        return enroll_fingerprint(payload)
+        
     template = predictor.extract_template(payload, biometric_type)
     return {
         "template": template,
@@ -16,12 +20,16 @@ def compare_templates(
     biometric_type: str,
     threshold: float = 85.0,
 ) -> dict:
+    if biometric_type.lower() == "fingerprint":
+        return verify_fingerprint(captured_data, stored_template, threshold)
+        
     score = predictor.compare_template(captured_data, stored_template, biometric_type)
     return {
         "score": score,
         "match": score >= threshold,
         "biometricType": biometric_type,
     }
+
 
 
 def evaluate_verification(
