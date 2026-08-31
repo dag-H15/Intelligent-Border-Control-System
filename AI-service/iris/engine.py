@@ -18,7 +18,7 @@ class IrisEngine:
         self.extractor = IrisFeatureExtractor()
         self.matcher = IrisMatcher()
 
-    def extract_template(self, payload: str) -> str:
+    def extract_template(self, payload: str | np.ndarray) -> str:
         img = decode_base64_image(payload)
         if img is None:
             return base64.b64encode(b"").decode("ascii")
@@ -31,8 +31,8 @@ class IrisEngine:
         template_bytes = self.extractor.pack_template(binary_template, binary_mask)
         return base64.b64encode(template_bytes).decode("ascii")
 
-    def compare_template(self, captured_data: str, reference_template: str) -> float:
-        if not captured_data or not reference_template:
+    def compare_template(self, captured_data: str | np.ndarray, reference_template: str) -> float:
+        if captured_data is None or reference_template is None:
             return 0.0
 
         try:

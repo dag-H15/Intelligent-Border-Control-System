@@ -1,17 +1,23 @@
-from models.predictor import predictor
+"""
+Services Matcher — Shared Orchestration for Fingerprint and Iris Biometrics
+"""
+
 from fingerprint.engine import enroll_fingerprint, verify_fingerprint
+from iris.engine import IrisEngine
+
+iris_engine = IrisEngine()
 
 
 def extract_template(payload: str, biometric_type: str) -> dict:
-    if biometric_type.lower() == "fingerprint":
-        return enroll_fingerprint(payload)
-        
-    template = predictor.extract_template(payload, biometric_type)
-    return {
-        "template": template,
-        "biometricType": biometric_type,
-        "encoding": "base64",
-    }
+    b_type = (biometric_type or "fingerprint").lower()
+    if b_type == "iris":
+        template = iris_engine.extract_template(payload)
+        return {
+            "template": template,
+            "biometricType": "iris",
+            "encoding": "base64",
+        }
+    return enroll_fingerprint(payload)
 
 
 def compare_templates(
@@ -20,16 +26,15 @@ def compare_templates(
     biometric_type: str,
     threshold: float = 85.0,
 ) -> dict:
-    if biometric_type.lower() == "fingerprint":
-        return verify_fingerprint(captured_data, stored_template, threshold)
-        
-    score = predictor.compare_template(captured_data, stored_template, biometric_type)
-    return {
-        "score": score,
-        "match": score >= threshold,
-        "biometricType": biometric_type,
-    }
-
+    b_type = (biometric_type or "fingerprint").lower()
+    if b_type == "iris":
+        score = iris_engine.compare_template(captured_data, stored_template)
+        return {
+            "score": score,
+            "match": score >= threshold,
+            "biometricType": "iris",
+        }
+    return verify_fingerprint(captured_data, stored_template, threshold)
 
 
 def evaluate_verification(
@@ -41,7 +46,6 @@ def evaluate_verification(
     ref_iris: str,
     threshold: float = 95.0,
 ) -> dict:
-    """Compatibility wrapper that keeps the old combined verification response available."""
     fp_result = compare_templates(fingerprint_captured, ref_fingerprint, "fingerprint", threshold)
     iris_result = compare_templates(iris_captured, ref_iris, "iris", threshold)
     final_score = round((fp_result["score"] + iris_result["score"]) / 2, 2)
