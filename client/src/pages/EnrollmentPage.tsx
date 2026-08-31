@@ -2,6 +2,7 @@ import { useState, type ChangeEvent } from 'react';
 import { enrollmentService, type Traveler } from '../services/enrollmentService';
 import { scannerService } from '../services/scannerService';
 import { getApiErrorMessage } from '../services/api';
+import { CameraCaptureModal } from '../components/CameraCaptureModal';
 import {
   UserPlus,
   Fingerprint,
@@ -12,6 +13,7 @@ import {
   Loader2,
   ShieldCheck,
   Radio,
+  Camera,
 } from 'lucide-react';
 
 export function EnrollmentPage() {
@@ -33,6 +35,21 @@ export function EnrollmentPage() {
   const [irisTemplate, setIrisTemplate] = useState('');
   const [fingerprintFileName, setFingerprintFileName] = useState('');
   const [irisFileName, setIrisFileName] = useState('');
+
+  // Live Camera Capture State
+  const [cameraModalOpen, setCameraModalOpen] = useState(false);
+  const [cameraTarget, setCameraTarget] = useState<'fingerprint' | 'iris'>('iris');
+
+  const handleCameraCapture = (imageDataUrl: string) => {
+    const base64Data = imageDataUrl.includes(',') ? imageDataUrl.split(',')[1] : imageDataUrl;
+    if (cameraTarget === 'fingerprint') {
+      setFingerprintTemplate(base64Data);
+      setFingerprintFileName('Captured Fingerprint (Live Windows Camera)');
+    } else {
+      setIrisTemplate(base64Data);
+      setIrisFileName('Captured Iris (Live Windows Camera)');
+    }
+  };
 
   const [capturingFingerprint, setCapturingFingerprint] = useState(false);
   const [capturingIris, setCapturingIris] = useState(false);
@@ -432,7 +449,7 @@ export function EnrollmentPage() {
               </div>
             </div>
 
-            {/* Method 1: Upload Simulation */}
+            {/* Method 1: Upload Simulation & Live Camera */}
             {captureMethod === 'simulation' && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="border border-dashed border-navy-200 rounded-xl p-4 text-center hover:bg-navy-50/50 transition-colors">
@@ -446,9 +463,19 @@ export function EnrollmentPage() {
                     className="hidden"
                     id="fp-upload"
                   />
-                  <label htmlFor="fp-upload" className="btn-secondary text-xs cursor-pointer inline-flex items-center gap-1">
-                    <Upload size={13} /> Upload Image
-                  </label>
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <label htmlFor="fp-upload" className="btn-secondary text-xs cursor-pointer inline-flex items-center gap-1">
+                      <Upload size={13} /> Upload Image
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => { setCameraTarget('fingerprint'); setCameraModalOpen(true); }}
+                      className="btn-secondary text-xs inline-flex items-center gap-1 text-navy-600 hover:text-accent-blue"
+                      title="Fun Alternative: Use camera to take a photo of finger"
+                    >
+                      <Camera size={13} /> Camera (Fun Alt)
+                    </button>
+                  </div>
                   {fingerprintFileName && (
                     <div className="mt-2 text-xs text-accent-green font-medium flex items-center justify-center gap-1">
                       <CheckCircle2 size={12} /> {fingerprintFileName}
@@ -458,8 +485,8 @@ export function EnrollmentPage() {
 
                 <div className="border border-dashed border-navy-200 rounded-xl p-4 text-center hover:bg-navy-50/50 transition-colors">
                   <Eye size={24} className="mx-auto text-navy-400 mb-2" />
-                  <div className="text-xs font-semibold text-navy-700 mb-1">Iris Image</div>
-                  <div className="text-[10px] text-navy-400 mb-2 font-mono">Accepted: PNG, JPG, JPEG, BMP</div>
+                  <div className="text-xs font-semibold text-navy-700 mb-1">Iris Image / Live Camera</div>
+                  <div className="text-[10px] text-navy-400 mb-2 font-mono">Accepted: PNG, JPG, JPEG, BMP or Windows Camera</div>
                   <input
                     type="file"
                     accept="image/png,image/jpeg,image/bmp,.png,.jpg,.jpeg,.bmp"
@@ -467,9 +494,18 @@ export function EnrollmentPage() {
                     className="hidden"
                     id="iris-upload"
                   />
-                  <label htmlFor="iris-upload" className="btn-secondary text-xs cursor-pointer inline-flex items-center gap-1">
-                    <Upload size={13} /> Upload Image
-                  </label>
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setCameraTarget('iris'); setCameraModalOpen(true); }}
+                      className="btn-primary text-xs inline-flex items-center gap-1"
+                    >
+                      <Camera size={13} /> Use Windows Camera
+                    </button>
+                    <label htmlFor="iris-upload" className="btn-secondary text-xs cursor-pointer inline-flex items-center gap-1">
+                      <Upload size={13} /> Upload File
+                    </label>
+                  </div>
                   {irisFileName && (
                     <div className="mt-2 text-xs text-accent-green font-medium flex items-center justify-center gap-1">
                       <CheckCircle2 size={12} /> {irisFileName}
@@ -483,23 +519,34 @@ export function EnrollmentPage() {
             {captureMethod === 'scanner' && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="border border-navy-200 rounded-xl p-5 text-center bg-navy-50/30">
-                  <Fingerprint size={28} className="mx-auto text-navy-600 mb-2" />
-                  <div className="text-sm font-semibold text-navy-800 mb-3">Fingerprint Scanner</div>
-                  <button
-                    onClick={handleScanFingerprint}
-                    disabled={capturingFingerprint}
-                    className="btn-secondary text-xs inline-flex items-center gap-1"
-                  >
-                    {capturingFingerprint ? (
-                      <>
-                        <Loader2 size={14} className="animate-spin" /> Capturing...
-                      </>
-                    ) : (
-                      <>
-                        <Fingerprint size={14} /> Capture Fingerprint
-                      </>
-                    )}
-                  </button>
+                  <Fingerprint size={28} className="mx-auto text-navy-700 mb-2" />
+                  <div className="text-sm font-semibold text-navy-800 mb-1">Windows Fingerprint Sensor</div>
+                  <div className="text-[11px] text-navy-400 mb-3">Touch built-in reader or USB biometric scanner</div>
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <button
+                      onClick={handleScanFingerprint}
+                      disabled={capturingFingerprint}
+                      className="btn-primary text-xs inline-flex items-center gap-1 px-4 py-2"
+                    >
+                      {capturingFingerprint ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin" /> Scanning Sensor...
+                        </>
+                      ) : (
+                        <>
+                          <Fingerprint size={14} /> Touch Fingerprint Sensor
+                        </>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setCameraTarget('fingerprint'); setCameraModalOpen(true); }}
+                      className="btn-secondary text-xs inline-flex items-center gap-1"
+                      title="Fun Alternative: Use camera snapshot instead"
+                    >
+                      <Camera size={13} /> Camera (Fun Alt)
+                    </button>
+                  </div>
                   {fingerprintTemplate && (
                     <div className="mt-2 text-xs text-accent-green font-medium flex items-center justify-center gap-1">
                       <CheckCircle2 size={12} /> Fingerprint Captured
@@ -508,23 +555,33 @@ export function EnrollmentPage() {
                 </div>
 
                 <div className="border border-navy-200 rounded-xl p-5 text-center bg-navy-50/30">
-                  <Eye size={28} className="mx-auto text-navy-600 mb-2" />
-                  <div className="text-sm font-semibold text-navy-800 mb-3">Iris Scanner</div>
-                  <button
-                    onClick={handleScanIris}
-                    disabled={capturingIris}
-                    className="btn-secondary text-xs inline-flex items-center gap-1"
-                  >
-                    {capturingIris ? (
-                      <>
-                        <Loader2 size={14} className="animate-spin" /> Capturing...
-                      </>
-                    ) : (
-                      <>
-                        <Eye size={14} /> Capture Iris
-                      </>
-                    )}
-                  </button>
+                  <Eye size={28} className="mx-auto text-navy-700 mb-2" />
+                  <div className="text-sm font-semibold text-navy-800 mb-1">Windows Camera (Iris Scan)</div>
+                  <div className="text-[11px] text-navy-400 mb-3">Live webcam iris capture or iris scanner</div>
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setCameraTarget('iris'); setCameraModalOpen(true); }}
+                      className="btn-primary text-xs inline-flex items-center gap-1 px-4 py-2"
+                    >
+                      <Camera size={14} /> Open Windows Camera
+                    </button>
+                    <button
+                      onClick={handleScanIris}
+                      disabled={capturingIris}
+                      className="btn-secondary text-xs inline-flex items-center gap-1"
+                    >
+                      {capturingIris ? (
+                        <>
+                          <Loader2 size={14} className="animate-spin" /> Scanning...
+                        </>
+                      ) : (
+                        <>
+                          <Eye size={14} /> Iris Scanner
+                        </>
+                      )}
+                    </button>
+                  </div>
                   {irisTemplate && (
                     <div className="mt-2 text-xs text-accent-green font-medium flex items-center justify-center gap-1">
                       <CheckCircle2 size={12} /> Iris Captured
@@ -559,6 +616,19 @@ export function EnrollmentPage() {
           </div>
         )}
       </div>
+
+      {/* Live Windows Camera Capture Modal */}
+      <CameraCaptureModal
+        isOpen={cameraModalOpen}
+        onClose={() => setCameraModalOpen(false)}
+        onCapture={handleCameraCapture}
+        title={cameraTarget === 'fingerprint' ? 'Live Camera Fingerprint Capture' : 'Live Camera Iris Capture'}
+        subtitle={
+          cameraTarget === 'fingerprint'
+            ? 'Align right index finger within the target frame and capture photo'
+            : 'Align traveler iris within the target frame and capture clear photo'
+        }
+      />
     </div>
   );
 }

@@ -3,11 +3,12 @@ import { verificationService } from '../services/verificationService';
 import { travelerService } from '../services/travelerService';
 import { manualReviewService } from '../services/manualReviewService';
 import { scannerService } from '../services/scannerService';
+import { CameraCaptureModal } from '../components/CameraCaptureModal';
 import type { Traveler, VerificationResult } from '../types';
 import api from '../services/api';
 import {
   Search, Fingerprint, ScanEye, Upload, CheckCircle2, XCircle, Clock, ShieldCheck,
-  User, Globe, Calendar, FileText, AlertCircle, Loader2, RotateCcw, Cpu, ArrowRight, FileUp, ShieldAlert, Paperclip,
+  User, Globe, Calendar, FileText, AlertCircle, Loader2, RotateCcw, Cpu, ArrowRight, FileUp, ShieldAlert, Paperclip, Camera,
 } from 'lucide-react';
 
 const decisionThresholds = {
@@ -50,6 +51,34 @@ export function VerifyTravelerPage() {
   const [fpAttempts, setFpAttempts] = useState(0);
   const [irisAttempts, setIrisAttempts] = useState(0);
   const [qualityChecking, setQualityChecking] = useState(false);
+
+  // Live Windows Camera State
+  const [cameraModalOpen, setCameraModalOpen] = useState(false);
+  const [cameraTarget, setCameraTarget] = useState<'fingerprint' | 'iris'>('fingerprint');
+
+  const dataUrlToFile = (dataUrl: string, filename: string): File => {
+    const arr = dataUrl.split(',');
+    const mime = arr[0].match(/:(.*?);/)?.[1] || 'image/png';
+    const bstr = atob(arr[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) {
+      u8arr[n] = bstr.charCodeAt(n);
+    }
+    return new File([u8arr], filename, { type: mime });
+  };
+
+  const handleCameraCapture = (imageDataUrl: string) => {
+    if (cameraTarget === 'fingerprint') {
+      const file = dataUrlToFile(imageDataUrl, 'camera-fingerprint.png');
+      setFingerprintSource(file);
+      checkFpQuality(file);
+    } else {
+      const file = dataUrlToFile(imageDataUrl, 'camera-iris.png');
+      setIrisSource(file);
+      checkIrisQuality(file);
+    }
+  };
 
   useEffect(() => {
     api.get('/checkpoints')
@@ -502,6 +531,7 @@ export function VerifyTravelerPage() {
               fileName={typeof fingerprintSource === 'string' ? 'Scanner fingerprint captured' : fingerprintSource?.name}
               actionLabel={captureMode === 'SCANNER' ? 'Capture Fingerprint' : 'Choose Image'}
               onAction={captureFingerprint}
+              onCameraAction={() => { setCameraTarget('fingerprint'); setCameraModalOpen(true); }}
               onClear={clearFingerprint}
               quality={fpQuality}
               attempts={fpAttempts}
@@ -520,6 +550,7 @@ export function VerifyTravelerPage() {
               fileName={typeof irisSource === 'string' ? 'Scanner iris captured' : irisSource?.name}
               actionLabel={captureMode === 'SCANNER' ? 'Capture Iris' : 'Choose Image'}
               onAction={captureIris}
+              onCameraAction={() => { setCameraTarget('iris'); setCameraModalOpen(true); }}
               onClear={clearIris}
               quality={irisQuality}
               attempts={irisAttempts}
@@ -532,6 +563,18 @@ export function VerifyTravelerPage() {
               onChange={(e) => handleIrisSelect(e.target.files?.[0] ?? null)}
             />
           </div>
+
+          <CameraCaptureModal
+            isOpen={cameraModalOpen}
+            onClose={() => setCameraModalOpen(false)}
+            onCapture={handleCameraCapture}
+            title={cameraTarget === 'fingerprint' ? 'Live Camera Fingerprint Capture' : 'Live Camera Iris Capture'}
+            subtitle={
+              cameraTarget === 'fingerprint'
+                ? 'Align right index finger within the target frame and capture photo'
+                : 'Align traveler iris within the target frame and capture clear photo'
+            }
+          />
           {qualityChecking && (
             <div className="mt-3 text-xs text-accent-blue font-semibold animate-pulse flex items-center gap-1.5 justify-center">
               <Loader2 size={12} className="animate-spin" /> Evaluating image capture quality...
@@ -684,6 +727,7 @@ function UploadCard({
   fileName,
   actionLabel,
   onAction,
+  onCameraAction,
   onClear,
   quality,
   attempts,
@@ -694,6 +738,7 @@ function UploadCard({
   fileName?: string;
   actionLabel: string;
   onAction: () => void;
+  onCameraAction?: () => void;
   onClear: () => void;
   quality?: { score: number; acceptable: boolean } | null;
   attempts?: number;
@@ -727,15 +772,31 @@ function UploadCard({
                 <button onClick={onAction} className="btn-secondary text-xs px-3 py-1.5 flex items-center gap-1">
                   <RotateCcw size={12} /> Re-upload
                 </button>
+                {onCameraAction && (
+                  <button onClick={onCameraAction} className="btn-secondary text-xs px-3 py-1.5 flex items-center gap-1">
+                    <Camera size={12} /> Camera
+                  </button>
+                )}
                 <button onClick={onClear} className="btn-secondary text-xs px-3 py-1.5 flex items-center gap-1">
                   <XCircle size={12} /> Clear
                 </button>
               </div>
             </div>
           ) : (
-            <button onClick={onAction} className="mt-3 btn-secondary text-xs px-3 py-2">
-              <Upload size={13} /> {actionLabel}
-            </button>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button onClick={onAction} className="btn-primary text-xs px-3.5 py-2 flex items-center gap-1.5">
+                {title.toLowerCase().includes('fingerprint') ? <Fingerprint size={14} /> : <Upload size={13} />} {actionLabel}
+              </button>
+              {onCameraAction && (
+                <button
+                  onClick={onCameraAction}
+                  className="btn-secondary text-xs px-3 py-2 flex items-center gap-1 text-navy-600 hover:text-accent-blue"
+                  title="Fun Alternative: Use live camera feed to take a photo"
+                >
+                  <Camera size={13} /> {title.toLowerCase().includes('iris') ? 'Use Windows Camera' : 'Camera (Fun Alt)'}
+                </button>
+              )}
+            </div>
           )}
         </div>
       </div>
