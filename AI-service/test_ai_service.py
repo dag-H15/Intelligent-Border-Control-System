@@ -135,6 +135,36 @@ class TestAIService(unittest.TestCase):
         data = json.loads(res.data)
         self.assertEqual(data.get("status"), "ok")
 
+    # --- Quality check responses ----------------------------------------
+
+    def test_quality_check_fingerprint_valid_image(self):
+        payload = {"biometricType": "fingerprint", "image": self.fingerprint_image}
+        res = self.client.post("/quality", data=json.dumps(payload), content_type="application/json")
+        self.assertEqual(res.status_code, 200)
+        data = json.loads(res.data)
+        self.assertIn("score", data)
+        self.assertIn("acceptable", data)
+        self.assertEqual(data.get("biometricType"), "fingerprint")
+        self.assertTrue(data.get("acceptable"))
+
+    def test_quality_check_fingerprint_token(self):
+        payload = {"biometricType": "fingerprint", "image": "scanner-fingerprint-FAN-100001"}
+        res = self.client.post("/quality", data=json.dumps(payload), content_type="application/json")
+        self.assertEqual(res.status_code, 200)
+        data = json.loads(res.data)
+        self.assertEqual(data.get("score"), 100.0)
+        self.assertTrue(data.get("acceptable"))
+
+    def test_quality_check_iris_valid_image(self):
+        payload = {"biometricType": "iris", "image": self.iris_image}
+        res = self.client.post("/quality", data=json.dumps(payload), content_type="application/json")
+        self.assertEqual(res.status_code, 200)
+        data = json.loads(res.data)
+        self.assertIn("score", data)
+        self.assertIn("acceptable", data)
+        self.assertEqual(data.get("biometricType"), "iris")
+        self.assertTrue(data.get("acceptable"))
+
     # --- Enrollment responses -------------------------------------------
 
     def test_enroll_fingerprint_returns_template(self):

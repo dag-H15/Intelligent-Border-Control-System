@@ -4,6 +4,7 @@ import api from '../services/api';
 import {
   LayoutDashboard, Fingerprint, History, LogOut, Users, ScrollText, Shield,
   Settings, ClipboardCheck, FileBarChart, ChevronDown, UserPlus, Gavel, Bell,
+  PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
 import type { Role } from '../types';
 
@@ -66,6 +67,7 @@ export function AppShell({ role, userName, active, onNavigate, onLogout, childre
   const items = navByRole[role];
   const [notifications, setNotifications] = useState<any[]>([]);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
 
   const fetchNotifications = async () => {
     try {
@@ -102,14 +104,24 @@ export function AppShell({ role, userName, active, onNavigate, onLogout, childre
       console.error(err);
     }
   };
+
   return (
     <div className="flex h-screen overflow-hidden bg-navy-50">
       {/* Sidebar */}
-      <aside className="w-64 shrink-0 bg-navy-900 flex flex-col">
-        <div className="px-5 py-5 border-b border-navy-800">
-          <SystemMark />
+      <aside className={`${collapsed ? 'w-20' : 'w-64'} shrink-0 bg-navy-900 flex flex-col transition-all duration-300 ease-in-out`}>
+        <div className={`px-4 py-5 border-b border-navy-800 flex items-center ${collapsed ? 'justify-center' : 'justify-between'}`}>
+          <SystemMark collapsed={collapsed} />
+          {!collapsed && (
+            <button
+              onClick={() => setCollapsed(true)}
+              className="p-1.5 rounded-lg text-navy-400 hover:text-white hover:bg-navy-800 transition-colors"
+              title="Collapse Sidebar"
+            >
+              <PanelLeftClose size={18} />
+            </button>
+          )}
         </div>
-        <nav className="flex-1 px-3 py-4 space-y-1">
+        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
           {items.map((item) => {
             const Icon = item.icon;
             const isActive = active === item.key;
@@ -117,27 +129,38 @@ export function AppShell({ role, userName, active, onNavigate, onLogout, childre
               <button
                 key={item.key}
                 onClick={() => onNavigate(item.key)}
-                className={`sidebar-link w-full ${isActive ? 'sidebar-link-active' : ''}`}
+                title={collapsed ? item.label : undefined}
+                className={`sidebar-link w-full ${isActive ? 'sidebar-link-active' : ''} ${collapsed ? 'justify-center px-2' : ''}`}
               >
-                <Icon size={18} strokeWidth={2} />
-                <span>{item.label}</span>
+                <Icon size={18} strokeWidth={2} className="shrink-0" />
+                {!collapsed && <span>{item.label}</span>}
               </button>
             );
           })}
         </nav>
         <div className="px-3 pb-3">
-          <div className="rounded-lg bg-navy-800/60 px-3 py-2.5">
-            <div className="flex items-center gap-2 text-navy-300 text-[11px] font-medium uppercase tracking-wide">
-              <Shield size={12} />
-              Secure Session
+          {collapsed ? (
+            <div className="flex items-center justify-center p-2 rounded-lg bg-navy-800/60 text-navy-300" title="Secure Session (TLS 1.3 Active)">
+              <Shield size={16} />
             </div>
-            <div className="mt-1 text-navy-200 text-[11px]">TLS 1.3 · Session Active</div>
-          </div>
+          ) : (
+            <div className="rounded-lg bg-navy-800/60 px-3 py-2.5">
+              <div className="flex items-center gap-2 text-navy-300 text-[11px] font-medium uppercase tracking-wide">
+                <Shield size={12} />
+                Secure Session
+              </div>
+              <div className="mt-1 text-navy-200 text-[11px]">TLS 1.3 · Session Active</div>
+            </div>
+          )}
         </div>
         <div className="border-t border-navy-800 p-3">
-          <button onClick={onLogout} className="sidebar-link w-full text-navy-300 hover:text-accent-red">
-            <LogOut size={18} strokeWidth={2} />
-            <span>Logout</span>
+          <button
+            onClick={onLogout}
+            title={collapsed ? 'Logout' : undefined}
+            className={`sidebar-link w-full text-navy-300 hover:text-accent-red ${collapsed ? 'justify-center px-2' : ''}`}
+          >
+            <LogOut size={18} strokeWidth={2} className="shrink-0" />
+            {!collapsed && <span>Logout</span>}
           </button>
         </div>
       </aside>
@@ -147,6 +170,15 @@ export function AppShell({ role, userName, active, onNavigate, onLogout, childre
         {/* Topbar */}
         <header className="h-16 shrink-0 bg-white border-b border-navy-100 flex items-center justify-between px-6">
           <div className="flex items-center gap-3">
+            {collapsed && (
+              <button
+                onClick={() => setCollapsed(false)}
+                className="p-2 text-navy-500 hover:text-navy-800 hover:bg-navy-50 rounded-lg transition-colors"
+                title="Expand Sidebar"
+              >
+                <PanelLeftOpen size={20} />
+              </button>
+            )}
             <h1 className="text-navy-800 font-semibold text-base">
               {items.find((i) => i.key === active)?.label ?? 'Dashboard'}
             </h1>
