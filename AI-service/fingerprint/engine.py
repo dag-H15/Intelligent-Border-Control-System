@@ -43,8 +43,13 @@ def enroll_fingerprint(payload: str) -> dict:
     if h < MIN_IMAGE_DIMENSION or w < MIN_IMAGE_DIMENSION:
         raise ValueError(f"Image dimensions too small: {w}x{h} (minimum {MIN_IMAGE_DIMENSION}x{MIN_IMAGE_DIMENSION})")
 
-    # Quality check during enrollment (warn but proceed)
+    # Quality check during enrollment
     quality_res = check_quality(img)
+    if not quality_res["acceptable"]:
+        issues_str = f": {', '.join(quality_res['issues'])}" if quality_res.get("issues") else ""
+        raise ValueError(
+            f"Fingerprint image quality too low for enrollment ({quality_res['qualityStatus']}, score: {quality_res['score']}%){issues_str}"
+        )
     
     # Preprocessing & Feature Extraction
     normalized, mask = preprocess_fingerprint_image(img)
@@ -164,21 +169,24 @@ def verify_fingerprint(
     # Quality check
     quality_res = check_quality(img)
     if not quality_res["acceptable"]:
+        failure_status = "INVALID_BIOMETRIC" if quality_res.get("qualityStatus") == "INVALID_BIOMETRIC" else "QUALITY_RETRY"
         return {
             "modality": "fingerprint",
             "biometricType": "fingerprint",
-            "status": "QUALITY_RETRY",
+            "status": failure_status,
             "verified": False,
             "match": False,
             "qualityScore": quality_res["score"],
             "matchScore": 0.0,
             "score": 0.0,
             "confidence": "LOW",
-            "reason": f"Fingerprint quality too low: {', '.join(quality_res['issues'])}",
+            "reason": f"Fingerprint quality check failed ({failure_status}): {', '.join(quality_res['issues'])}",
             "processingDetails": {
                 "qualityAccepted": False,
                 "featureExtractionSuccessful": False,
-                "qualityDetails": quality_res["details"]
+                "biometricValid": quality_res.get("biometricValid", False),
+                "qualityDetails": quality_res.get("details", {}),
+                "signals": quality_res.get("signals", {}),
             }
         }
 
