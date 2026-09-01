@@ -108,11 +108,16 @@ export async function checkBiometricQuality(input: AiQualityInput): Promise<{
   score: number;
   acceptable: boolean;
   biometricType: BiometricType;
+  biometricValid?: boolean;
+  qualityStatus?: string;
+  issues?: string[];
+  signals?: Record<string, any>;
   details?: {
     sharpness: number;
     contrast: number;
     heuristic: number;
     laplacianVariance: number;
+    [key: string]: any;
   };
 }> {
   const response = await fetch(buildAiUrl("quality"), {
@@ -133,12 +138,20 @@ export async function checkBiometricQuality(input: AiQualityInput): Promise<{
     score: number;
     acceptable: boolean;
     biometricType?: BiometricType;
+    biometricValid?: boolean;
+    qualityStatus?: string;
+    issues?: string[];
+    signals?: Record<string, any>;
     details?: any;
   };
   return {
     score: Number(result.score),
     acceptable: Boolean(result.acceptable),
     biometricType: (result.biometricType ?? input.biometricType) as BiometricType,
+    biometricValid: result.biometricValid,
+    qualityStatus: result.qualityStatus,
+    issues: result.issues,
+    signals: result.signals,
     details: result.details,
   };
 }
