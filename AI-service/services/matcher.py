@@ -1,10 +1,14 @@
 from models.predictor import predictor
 from fingerprint.engine import enroll_fingerprint, verify_fingerprint
+from iris.engine import enroll_iris, verify_iris
 
 
 def extract_template(payload: str, biometric_type: str) -> dict:
-    if biometric_type.lower() == "fingerprint":
+    btype = biometric_type.lower()
+    if btype == "fingerprint":
         return enroll_fingerprint(payload)
+    if btype == "iris":
+        return enroll_iris(payload)
         
     template = predictor.extract_template(payload, biometric_type)
     return {
@@ -20,8 +24,11 @@ def compare_templates(
     biometric_type: str,
     threshold: float = 85.0,
 ) -> dict:
-    if biometric_type.lower() == "fingerprint":
+    btype = biometric_type.lower()
+    if btype == "fingerprint":
         return verify_fingerprint(captured_data, stored_template, threshold)
+    if btype == "iris":
+        return verify_iris(captured_data, stored_template, threshold)
         
     score = predictor.compare_template(captured_data, stored_template, biometric_type)
     return {
