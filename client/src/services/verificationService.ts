@@ -82,7 +82,7 @@ export const verificationService = {
   },
 
   checkQuality: async (payload: { biometricType: 'fingerprint' | 'iris'; image?: string; imageData?: string }) => {
-    const { data } = await api.post<{ score: number; acceptable: boolean; details?: any }>('/verification/quality', payload);
+    const { data } = await api.post<import('../types').BiometricQualityResult>('/verification/quality', payload);
     return data;
   },
 

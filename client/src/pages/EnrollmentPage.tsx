@@ -1,7 +1,9 @@
 import { useState, type ChangeEvent } from 'react';
 import { enrollmentService, type Traveler } from '../services/enrollmentService';
+import { verificationService } from '../services/verificationService';
 import { scannerService } from '../services/scannerService';
 import { getApiErrorMessage } from '../services/api';
+import type { BiometricQualityResult } from '../types';
 import {
   UserPlus,
   Fingerprint,
@@ -12,6 +14,8 @@ import {
   Loader2,
   ShieldCheck,
   Radio,
+  AlertTriangle,
+  Sparkles,
 } from 'lucide-react';
 
 export function EnrollmentPage() {
@@ -34,6 +38,12 @@ export function EnrollmentPage() {
   const [fingerprintFileName, setFingerprintFileName] = useState('');
   const [irisFileName, setIrisFileName] = useState('');
 
+  // Real-time biometric quality assessment states
+  const [fpQuality, setFpQuality] = useState<BiometricQualityResult | null>(null);
+  const [irisQuality, setIrisQuality] = useState<BiometricQualityResult | null>(null);
+  const [checkingFpQuality, setCheckingFpQuality] = useState(false);
+  const [checkingIrisQuality, setCheckingIrisQuality] = useState(false);
+
   const [capturingFingerprint, setCapturingFingerprint] = useState(false);
   const [capturingIris, setCapturingIris] = useState(false);
 
@@ -41,11 +51,53 @@ export function EnrollmentPage() {
   const [biometricError, setBiometricError] = useState('');
   const [enrollmentSuccess, setEnrollmentSuccess] = useState(false);
 
+  // Helper to assess biometric quality via AI Service
+  const assessQuality = async (type: 'fingerprint' | 'iris', base64Data: string) => {
+    if (type === 'fingerprint') {
+      setCheckingFpQuality(true);
+      try {
+        const res = await verificationService.checkQuality({
+          biometricType: 'fingerprint',
+          imageData: base64Data,
+        });
+        setFpQuality(res);
+        if (res.biometricValid === false || res.qualityStatus === 'INVALID_BIOMETRIC') {
+          setBiometricError('The uploaded image is not a valid fingerprint. Please upload a fingerprint image.');
+        } else if (!res.acceptable) {
+          setBiometricError(`Fingerprint quality is poor (${res.score}%). Please upload a clearer fingerprint image.`);
+        } else {
+          setBiometricError('');
+        }
+      } catch (err: any) {
+        console.error('Fingerprint quality check failed:', err);
+      } finally {
+        setCheckingFpQuality(false);
+      }
+    } else {
+      setCheckingIrisQuality(true);
+      try {
+        const res = await verificationService.checkQuality({
+          biometricType: 'iris',
+          imageData: base64Data,
+        });
+        setIrisQuality(res);
+        if (!res.acceptable) {
+          setBiometricError(`Iris quality is poor (${res.score}%). Please upload a clearer iris image.`);
+        } else {
+          setBiometricError('');
+        }
+      } catch (err: any) {
+        console.error('Iris quality check failed:', err);
+      } finally {
+        setCheckingIrisQuality(false);
+      }
+    }
+  };
+
   // File to base64 helper for simulation mode
   const handleFileUpload = (
     e: ChangeEvent<HTMLInputElement>,
-    setTemplate: (val: string) => void,
-    setFileName: (val: string) => void,
+    type: 'fingerprint' | 'iris',
     allowedExtensions: string[]
   ) => {
     const file = e.target.files?.[0];
@@ -54,24 +106,39 @@ export function EnrollmentPage() {
     const extension = file.name.split('.').pop()?.toLowerCase() || '';
     if (!allowedExtensions.includes(extension)) {
       setBiometricError(`Invalid file format. Accepted formats: ${allowedExtensions.map(ext => ext.toUpperCase()).join(', ')}`);
-      setTemplate('');
-      setFileName('');
+      if (type === 'fingerprint') {
+        setFingerprintTemplate('');
+        setFingerprintFileName('');
+        setFpQuality(null);
+      } else {
+        setIrisTemplate('');
+        setIrisFileName('');
+        setIrisQuality(null);
+      }
       e.target.value = '';
       return;
     }
 
     setBiometricError('');
-    setFileName(file.name);
+    if (type === 'fingerprint') {
+      setFingerprintFileName(file.name);
+    } else {
+      setIrisFileName(file.name);
+    }
+
     const reader = new FileReader();
     reader.onload = () => {
       const result = reader.result as string;
-      // Strip data:image/...;base64, prefix if present for API template format
       const base64Data = result.includes(',') ? result.split(',')[1] : result;
-      setTemplate(base64Data);
+      if (type === 'fingerprint') {
+        setFingerprintTemplate(base64Data);
+      } else {
+        setIrisTemplate(base64Data);
+      }
+      assessQuality(type, base64Data);
     };
     reader.readAsDataURL(file);
   };
-
 
   // Step 1: Submit Traveler Demographic
   const handleCreateTraveler = async (e: React.FormEvent) => {
@@ -108,6 +175,7 @@ export function EnrollmentPage() {
       const base64Data = btoa(data);
       setFingerprintTemplate(base64Data);
       setFingerprintFileName('Captured Fingerprint (Hardware Scanner)');
+      assessQuality('fingerprint', base64Data);
     } catch {
       setBiometricError('Failed to capture fingerprint from scanner.');
     } finally {
@@ -122,6 +190,7 @@ export function EnrollmentPage() {
       const base64Data = btoa(data);
       setIrisTemplate(base64Data);
       setIrisFileName('Captured Iris (Hardware Scanner)');
+      assessQuality('iris', base64Data);
     } catch {
       setBiometricError('Failed to capture iris from scanner.');
     } finally {
@@ -132,6 +201,25 @@ export function EnrollmentPage() {
   // Step 2: Submit Biometrics
   const handleEnrollBiometrics = async () => {
     if (!registeredTraveler) return;
+    
+    // Check if biometric quality is unacceptable
+    if (fpQuality && (fpQuality.biometricValid === false || fpQuality.qualityStatus === 'INVALID_BIOMETRIC')) {
+      setBiometricError('The uploaded fingerprint is not a valid fingerprint image. Please upload a real fingerprint.');
+      return;
+    }
+    if (irisQuality && (irisQuality.biometricValid === false || irisQuality.qualityStatus === 'INVALID_BIOMETRIC')) {
+      setBiometricError('The uploaded iris is not a valid iris image. Please upload a real iris image.');
+      return;
+    }
+    if (fpQuality && !fpQuality.acceptable) {
+      setBiometricError(`Fingerprint quality (${fpQuality.score}%) is too low for enrollment. Please recapture.`);
+      return;
+    }
+    if (irisQuality && !irisQuality.acceptable) {
+      setBiometricError(`Iris quality (${irisQuality.score}%) is too low for enrollment. Please recapture.`);
+      return;
+    }
+
     setBiometricError('');
     setEnrollingBiometric(true);
 
@@ -166,6 +254,8 @@ export function EnrollmentPage() {
     setIrisTemplate('');
     setFingerprintFileName('');
     setIrisFileName('');
+    setFpQuality(null);
+    setIrisQuality(null);
     setEnrollmentSuccess(false);
     setTravelerError('');
     setBiometricError('');
@@ -435,44 +525,122 @@ export function EnrollmentPage() {
             {/* Method 1: Upload Simulation */}
             {captureMethod === 'simulation' && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="border border-dashed border-navy-200 rounded-xl p-4 text-center hover:bg-navy-50/50 transition-colors">
+                <div className={`border rounded-xl p-4 text-center transition-colors ${
+                  fpQuality && !fpQuality.acceptable
+                    ? 'border-accent-red bg-accent-red-soft/20'
+                    : fpQuality?.acceptable
+                    ? 'border-accent-green bg-accent-green-soft/10'
+                    : 'border-dashed border-navy-200 hover:bg-navy-50/50'
+                }`}>
                   <Fingerprint size={24} className="mx-auto text-navy-400 mb-2" />
                   <div className="text-xs font-semibold text-navy-700 mb-1">Fingerprint Image</div>
                   <div className="text-[10px] text-navy-400 mb-2 font-mono">Accepted: PNG, JPG, JPEG, BMP, TIF, TIFF</div>
                   <input
                     type="file"
                     accept="image/png,image/jpeg,image/bmp,image/tiff,image/x-tiff,.png,.jpg,.jpeg,.bmp,.tif,.tiff"
-                    onChange={(e) => handleFileUpload(e, setFingerprintTemplate, setFingerprintFileName, ['png', 'jpg', 'jpeg', 'bmp', 'tif', 'tiff'])}
+                    onChange={(e) => handleFileUpload(e, 'fingerprint', ['png', 'jpg', 'jpeg', 'bmp', 'tif', 'tiff'])}
                     className="hidden"
                     id="fp-upload"
                   />
                   <label htmlFor="fp-upload" className="btn-secondary text-xs cursor-pointer inline-flex items-center gap-1">
-                    <Upload size={13} /> Upload Image
+                    <Upload size={13} /> {fingerprintTemplate ? 'Replace Image' : 'Upload Image'}
                   </label>
-                  {fingerprintFileName && (
-                    <div className="mt-2 text-xs text-accent-green font-medium flex items-center justify-center gap-1">
-                      <CheckCircle2 size={12} /> {fingerprintFileName}
+
+                  {checkingFpQuality && (
+                    <div className="mt-2 text-xs text-navy-500 flex items-center justify-center gap-1.5 animate-pulse">
+                      <Loader2 size={12} className="animate-spin" /> Evaluating fingerprint quality...
+                    </div>
+                  )}
+
+                  {!checkingFpQuality && fingerprintFileName && (
+                    <div className="mt-2 text-xs text-navy-700 font-medium flex items-center justify-center gap-1">
+                      <CheckCircle2 size={12} className="text-accent-green" /> {fingerprintFileName}
+                    </div>
+                  )}
+
+                  {!checkingFpQuality && fpQuality && (
+                    <div className="mt-2 pt-2 border-t border-navy-100/60 text-xs">
+                      {fpQuality.biometricValid === false || fpQuality.qualityStatus === 'INVALID_BIOMETRIC' ? (
+                        <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-accent-red-soft text-accent-red">
+                          <AlertTriangle size={11} /> INVALID BIOMETRIC — Not a Fingerprint Image
+                        </div>
+                      ) : (
+                        <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold ${
+                          fpQuality.acceptable
+                            ? fpQuality.score >= 75
+                              ? 'bg-accent-green-soft text-accent-green'
+                              : 'bg-blue-50 text-blue-700'
+                            : 'bg-accent-red-soft text-accent-red'
+                        }`}>
+                          {fpQuality.acceptable ? <Sparkles size={11} /> : <AlertTriangle size={11} />}
+                          Quality: {fpQuality.score}% ({fpQuality.qualityStatus || (fpQuality.acceptable ? 'ACCEPTABLE' : 'POOR')})
+                        </div>
+                      )}
+                      {fpQuality.issues && fpQuality.issues.length > 0 && (
+                        <div className="text-[10px] text-accent-red mt-1">
+                          {fpQuality.issues.join(' • ')}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
 
-                <div className="border border-dashed border-navy-200 rounded-xl p-4 text-center hover:bg-navy-50/50 transition-colors">
+                <div className={`border rounded-xl p-4 text-center transition-colors ${
+                  irisQuality && !irisQuality.acceptable
+                    ? 'border-accent-red bg-accent-red-soft/20'
+                    : irisQuality?.acceptable
+                    ? 'border-accent-green bg-accent-green-soft/10'
+                    : 'border-dashed border-navy-200 hover:bg-navy-50/50'
+                }`}>
                   <Eye size={24} className="mx-auto text-navy-400 mb-2" />
                   <div className="text-xs font-semibold text-navy-700 mb-1">Iris Image</div>
                   <div className="text-[10px] text-navy-400 mb-2 font-mono">Accepted: PNG, JPG, JPEG, BMP</div>
                   <input
                     type="file"
                     accept="image/png,image/jpeg,image/bmp,.png,.jpg,.jpeg,.bmp"
-                    onChange={(e) => handleFileUpload(e, setIrisTemplate, setIrisFileName, ['png', 'jpg', 'jpeg', 'bmp'])}
+                    onChange={(e) => handleFileUpload(e, 'iris', ['png', 'jpg', 'jpeg', 'bmp'])}
                     className="hidden"
                     id="iris-upload"
                   />
                   <label htmlFor="iris-upload" className="btn-secondary text-xs cursor-pointer inline-flex items-center gap-1">
-                    <Upload size={13} /> Upload Image
+                    <Upload size={13} /> {irisTemplate ? 'Replace Image' : 'Upload Image'}
                   </label>
-                  {irisFileName && (
-                    <div className="mt-2 text-xs text-accent-green font-medium flex items-center justify-center gap-1">
-                      <CheckCircle2 size={12} /> {irisFileName}
+
+                  {checkingIrisQuality && (
+                    <div className="mt-2 text-xs text-navy-500 flex items-center justify-center gap-1.5 animate-pulse">
+                      <Loader2 size={12} className="animate-spin" /> Evaluating iris quality...
+                    </div>
+                  )}
+
+                  {!checkingIrisQuality && irisFileName && (
+                    <div className="mt-2 text-xs text-navy-700 font-medium flex items-center justify-center gap-1">
+                      <CheckCircle2 size={12} className="text-accent-green" /> {irisFileName}
+                    </div>
+                  )}
+
+                  {!checkingIrisQuality && irisQuality && (
+                    <div className="mt-2 pt-2 border-t border-navy-100/60 text-xs">
+                      {irisQuality.biometricValid === false || irisQuality.qualityStatus === 'INVALID_BIOMETRIC' ? (
+                        <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-accent-red-soft text-accent-red">
+                          <AlertTriangle size={11} /> INVALID BIOMETRIC — Not an Iris Image
+                        </div>
+                      ) : (
+                        <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold ${
+                          irisQuality.acceptable
+                            ? irisQuality.score >= 75
+                              ? 'bg-accent-green-soft text-accent-green'
+                              : 'bg-blue-50 text-blue-700'
+                            : 'bg-accent-red-soft text-accent-red'
+                        }`}>
+                          {irisQuality.acceptable ? <Sparkles size={11} /> : <AlertTriangle size={11} />}
+                          Quality: {irisQuality.score}% ({irisQuality.qualityStatus || (irisQuality.acceptable ? 'ACCEPTABLE' : 'POOR')})
+                        </div>
+                      )}
+                      {irisQuality.issues && irisQuality.issues.length > 0 && (
+                        <div className="text-[10px] text-accent-red mt-1">
+                          {irisQuality.issues.join(' • ')}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -505,6 +673,13 @@ export function EnrollmentPage() {
                       <CheckCircle2 size={12} /> Fingerprint Captured
                     </div>
                   )}
+                  {fpQuality && (
+                    <div className="mt-2 text-xs font-semibold text-navy-600">
+                      {fpQuality.biometricValid === false || fpQuality.qualityStatus === 'INVALID_BIOMETRIC'
+                        ? 'INVALID BIOMETRIC — Not a Fingerprint Image'
+                        : `Quality: ${fpQuality.score}% (${fpQuality.qualityStatus || (fpQuality.acceptable ? 'ACCEPTABLE' : 'POOR')})`}
+                    </div>
+                  )}
                 </div>
 
                 <div className="border border-navy-200 rounded-xl p-5 text-center bg-navy-50/30">
@@ -530,6 +705,13 @@ export function EnrollmentPage() {
                       <CheckCircle2 size={12} /> Iris Captured
                     </div>
                   )}
+                  {irisQuality && (
+                    <div className="mt-2 text-xs font-semibold text-navy-600">
+                      {irisQuality.biometricValid === false || irisQuality.qualityStatus === 'INVALID_BIOMETRIC'
+                        ? 'INVALID BIOMETRIC — Not an Iris Image'
+                        : `Quality: ${irisQuality.score}% (${irisQuality.qualityStatus || (irisQuality.acceptable ? 'ACCEPTABLE' : 'POOR')})`}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -537,7 +719,7 @@ export function EnrollmentPage() {
             <div className="pt-2">
               <button
                 onClick={handleEnrollBiometrics}
-                disabled={!fingerprintTemplate || !irisTemplate || enrollingBiometric}
+                disabled={!fingerprintTemplate || !irisTemplate || enrollingBiometric || (fpQuality !== null && !fpQuality.acceptable) || (irisQuality !== null && !irisQuality.acceptable)}
                 className="btn-primary disabled:opacity-50"
               >
                 {enrollingBiometric ? (

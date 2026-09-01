@@ -176,6 +176,24 @@ export interface AuditEntry {
   severity: 'info' | 'warning' | 'critical';
 }
 
+export interface BiometricQualityResult {
+  score: number;
+  acceptable: boolean;
+  biometricType?: string;
+  biometricValid?: boolean;
+  qualityStatus?: 'GOOD' | 'ACCEPTABLE' | 'POOR' | 'INVALID_BIOMETRIC' | string;
+  issues?: string[];
+  details?: {
+    sharpness?: number;
+    contrast?: number;
+    brightness?: number;
+    laplacianVariance?: number;
+    usableAreaRatio?: number;
+    specularRatio?: number;
+    [key: string]: any;
+  };
+}
+
 export interface SystemSettings {
   approvalThreshold: number;
   reviewRangeMin: number;
