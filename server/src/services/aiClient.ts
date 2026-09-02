@@ -98,6 +98,62 @@ export async function compareBiometricTemplate(input: AiTemplateComparisonInput)
   };
 }
 
+export interface CandidateBiometric {
+  travelerId: number;
+  template: Buffer | Uint8Array | string;
+}
+
+export interface AiIdentificationInput {
+  biometricType: BiometricType;
+  imageBuffer?: Buffer;
+  imageData?: string;
+  candidates: CandidateBiometric[];
+  threshold?: number;
+}
+
+export async function identifyBiometricTemplate(input: AiIdentificationInput): Promise<{
+  matchFound: boolean;
+  matchedTravelerId: number | null;
+  score: number;
+  biometricType: BiometricType;
+}> {
+  const formattedCandidates = input.candidates.map((cand) => ({
+    travelerId: cand.travelerId,
+    template: bytesToBase64(cand.template),
+  }));
+
+  const response = await fetch(buildAiUrl("identify"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      biometricType: input.biometricType,
+      image: toImagePayload(input.imageBuffer, input.imageData),
+      candidates: formattedCandidates,
+      threshold: input.threshold ?? 85,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`AI Service returned error HTTP ${response.status}: ${errorText}`);
+  }
+
+  const result = (await response.json()) as {
+    matchFound: boolean;
+    matchedTravelerId: number | null;
+    score: number;
+    biometricType?: BiometricType;
+  };
+
+  return {
+    matchFound: Boolean(result.matchFound),
+    matchedTravelerId: result.matchedTravelerId ? Number(result.matchedTravelerId) : null,
+    score: Number(result.score ?? 0),
+    biometricType: (result.biometricType ?? input.biometricType) as BiometricType,
+  };
+}
+
+
 export interface AiQualityInput {
   biometricType: BiometricType;
   imageBuffer?: Buffer;

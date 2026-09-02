@@ -66,3 +66,47 @@ def evaluate_verification(
         "finalScore": final_score,
         "decision": decision,
     }
+
+
+def identify_template(
+    captured_data: str,
+    candidates: list[dict],
+    biometric_type: str = "fingerprint",
+    threshold: float = 85.0,
+) -> dict:
+    """
+    Perform 1:N identification of a captured biometric against a list of candidates.
+    Each candidate is expected to be a dict with 'travelerId' (or 'id') and 'template'.
+    Returns the candidate with the highest matching score >= threshold.
+    """
+    best_candidate = None
+    highest_score = 0.0
+
+    for cand in candidates:
+        template = cand.get("template") or cand.get("fingerprintTemplate") or cand.get("irisTemplate")
+        if not template:
+            continue
+        
+        res = compare_templates(captured_data, template, biometric_type, threshold)
+        score = float(res.get("score", 0.0))
+
+        if score >= threshold and score > highest_score:
+            highest_score = score
+            best_candidate = cand
+
+    if best_candidate and highest_score >= threshold:
+        traveler_id = best_candidate.get("travelerId") or best_candidate.get("id")
+        return {
+            "matchFound": True,
+            "matchedTravelerId": traveler_id,
+            "score": highest_score,
+            "biometricType": biometric_type,
+        }
+
+    return {
+        "matchFound": False,
+        "matchedTravelerId": None,
+        "score": highest_score,
+        "biometricType": biometric_type,
+    }
+

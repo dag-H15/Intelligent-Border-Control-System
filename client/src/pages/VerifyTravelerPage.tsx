@@ -3,6 +3,7 @@ import { verificationService } from '../services/verificationService';
 import { travelerService } from '../services/travelerService';
 import { manualReviewService } from '../services/manualReviewService';
 import { scannerService } from '../services/scannerService';
+import { supremaScanner } from '../services/supremaScanner';
 import type { Traveler, VerificationResult } from '../types';
 import api from '../services/api';
 import {
@@ -41,6 +42,9 @@ export function VerifyTravelerPage() {
   const [manualReviewSuccess, setManualReviewSuccess] = useState('');
   const fpInputRef = useRef<HTMLInputElement>(null);
   const irisInputRef = useRef<HTMLInputElement>(null);
+  const lookupFpInputRef = useRef<HTMLInputElement>(null);
+  const [lookupTab, setLookupTab] = useState<'FINGERPRINT' | 'FAN'>('FINGERPRINT');
+  const [identifyLoading, setIdentifyLoading] = useState(false);
 
   const [checkpoints, setCheckpoints] = useState<{ id: number; name: string }[]>([]);
   const [selectedCheckpoint, setSelectedCheckpoint] = useState<string>('');
@@ -87,6 +91,47 @@ export function VerifyTravelerPage() {
       setLookupLoading(false);
     }
   };
+
+  const handleFingerprintIdentify = async (source: File | string) => {
+    setIdentifyLoading(true);
+    setLookupError('');
+    try {
+      const data = await travelerService.identifyByFingerprint(source);
+      setTraveler(data);
+      setFingerprintSource(source);
+      setIrisSource(null);
+      setFiydaId(data.fan);
+      setStage('found');
+      checkFpQuality(source);
+    } catch (err: any) {
+      const msg = err.response?.data?.message || err.message || 'No enrolled traveler matches the scanned fingerprint.';
+      setTraveler(null);
+      setLookupError(msg);
+    } finally {
+      setIdentifyLoading(false);
+    }
+  };
+
+  const handleTouchSensorScan = async () => {
+    setIdentifyLoading(true);
+    setLookupError('');
+    try {
+      if (captureMode === 'SCANNER') {
+        const supRes = await supremaScanner.captureFingerprint();
+        if (supRes.success && (supRes.image || supRes.template)) {
+          await handleFingerprintIdentify(supRes.image || supRes.template!);
+          return;
+        }
+      }
+      const mockData = await scannerService.captureFingerprint();
+      await handleFingerprintIdentify(mockData);
+    } catch (err: any) {
+      const msg = err.response?.data?.message || err.message || 'Failed to capture fingerprint from sensor.';
+      setLookupError(msg);
+      setIdentifyLoading(false);
+    }
+  };
+
 
   const fileToBase64 = (file: File): Promise<string> =>
     new Promise((resolve, reject) => {
@@ -347,27 +392,115 @@ export function VerifyTravelerPage() {
       {/* Workflow steps */}
       <WorkflowSteps stage={stage} />
 
-      {/* Section 1 — Lookup */}
+      {/* Section 1 — Traveler Identification & Lookup */}
       <div className="card p-6">
-        <SectionHeader step={1} title="Traveler Lookup" subtitle="Retrieve traveler record from the Fiyda national database" />
-        <div className="mt-4 flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-navy-300" />
-            <input
-              value={fiydaId}
-              onChange={(e) => setFiydaId(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleLookup()}
-              placeholder="Enter Fiyda ID"
-              className="input pl-10 font-mono"
-            />
-          </div>
-          <button onClick={handleLookup} disabled={lookupLoading} className="btn-primary px-6 disabled:opacity-60">
-            {lookupLoading ? <><Loader2 size={16} className="animate-spin" /> Searching...</> : <><Search size={16} /> Search Fiyda</>}
+        <SectionHeader
+          step={1}
+          title="Traveler Identification"
+          subtitle="Place finger on sensor to identify traveler or lookup by FAN"
+        />
+
+        {/* Tab selection */}
+        <div className="mt-4 flex border-b border-navy-200">
+          <button
+            type="button"
+            onClick={() => { setLookupTab('FINGERPRINT'); setLookupError(''); }}
+            className={`flex items-center gap-2 px-4 py-2.5 font-semibold text-sm border-b-2 transition-colors ${
+              lookupTab === 'FINGERPRINT'
+                ? 'border-navy-800 text-navy-800 bg-navy-50/50'
+                : 'border-transparent text-navy-400 hover:text-navy-700'
+            }`}
+          >
+            <Fingerprint size={18} />
+            Fingerprint Sensor Authentication
+          </button>
+          <button
+            type="button"
+            onClick={() => { setLookupTab('FAN'); setLookupError(''); }}
+            className={`flex items-center gap-2 px-4 py-2.5 font-semibold text-sm border-b-2 transition-colors ${
+              lookupTab === 'FAN'
+                ? 'border-navy-800 text-navy-800 bg-navy-50/50'
+                : 'border-transparent text-navy-400 hover:text-navy-700'
+            }`}
+          >
+            <Search size={18} />
+            Manual FAN Lookup
           </button>
         </div>
+
+        {lookupTab === 'FINGERPRINT' ? (
+          <div className="mt-6 flex flex-col items-center justify-center p-6 border-2 border-dashed border-navy-200 rounded-2xl bg-navy-50/30">
+            <div className="relative mb-4">
+              <div
+                className={`p-5 rounded-full ${identifyLoading ? 'bg-navy-100 animate-pulse' : 'bg-navy-100 text-navy-800 hover:bg-navy-200'} transition-all cursor-pointer shadow-sm`}
+                onClick={handleTouchSensorScan}
+              >
+                <Fingerprint size={48} className={identifyLoading ? 'text-navy-800 animate-spin' : 'text-navy-800'} />
+              </div>
+            </div>
+
+            <h3 className="text-base font-bold text-navy-900 mb-1">
+              {identifyLoading ? 'Identifying Traveler from Fingerprint...' : 'Touch Sensor to Identify Traveler'}
+            </h3>
+            <p className="text-xs text-navy-500 max-w-md text-center mb-5">
+              Place traveler's finger on the Suprema hardware sensor or upload a test fingerprint file to automatically authenticate and fetch record.
+            </p>
+
+            <div className="flex flex-wrap justify-center gap-3">
+              <button
+                type="button"
+                onClick={handleTouchSensorScan}
+                disabled={identifyLoading}
+                className="btn-primary px-5 py-2.5 text-sm flex items-center gap-2 shadow-sm disabled:opacity-60"
+              >
+                {identifyLoading ? (
+                  <><Loader2 size={16} className="animate-spin" /> Scanning Sensor...</>
+                ) : (
+                  <><Fingerprint size={16} /> Scan Fingerprint Sensor</>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => lookupFpInputRef.current?.click()}
+                disabled={identifyLoading}
+                className="btn-secondary px-4 py-2.5 text-sm flex items-center gap-2 disabled:opacity-60"
+              >
+                <Upload size={16} /> Upload Print File
+              </button>
+              <input
+                ref={lookupFpInputRef}
+                type="file"
+                accept=".png,.jpg,.jpeg,.bmp,.tif,.tiff"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleFingerprintIdentify(file);
+                }}
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="mt-4 flex flex-col sm:flex-row gap-3">
+            <div className="relative flex-1">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-navy-300" />
+              <input
+                value={fiydaId}
+                onChange={(e) => setFiydaId(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleLookup()}
+                placeholder="Enter Fiyda ID / FAN"
+                className="input pl-10 font-mono"
+              />
+            </div>
+            <button onClick={handleLookup} disabled={lookupLoading} className="btn-primary px-6 disabled:opacity-60">
+              {lookupLoading ? <><Loader2 size={16} className="animate-spin" /> Searching...</> : <><Search size={16} /> Search Fiyda</>}
+            </button>
+          </div>
+        )}
+
         {lookupError && (
-          <div className="mt-3 flex items-center gap-2 text-sm text-accent-red bg-accent-red-soft rounded-lg px-3 py-2">
-            <AlertCircle size={15} /> {lookupError}
+          <div className="mt-4 flex items-center gap-2 text-sm text-accent-red bg-accent-red-soft rounded-lg px-4 py-3">
+            <AlertCircle size={16} className="shrink-0" /> {lookupError}
           </div>
         )}
       </div>

@@ -1,6 +1,6 @@
 import os
 from flask import Flask, request, jsonify
-from services.matcher import compare_templates, extract_template
+from services.matcher import compare_templates, extract_template, identify_template
 
 app = Flask(__name__)
 
@@ -114,6 +114,37 @@ def verify():
         app.logger.error(f"Error in verification: {e}")
         return jsonify({
             "message": "An error occurred in the AI matching service",
+            "error": str(e)
+        }), 500
+
+@app.route("/identify", methods=["POST"])
+@app.route("/api/identify", methods=["POST"])
+def identify():
+    try:
+        data = _read_json_payload()
+        biometric_type = _read_biometric_type(data)
+        threshold = float(data.get("threshold", 85.0))
+        captured_image = _read_image_payload(data)
+        candidates = data.get("candidates") or []
+
+        if not captured_image or not candidates:
+            return jsonify({
+                "message": "Both a captured image and candidate list are required for 1:N identification."
+            }), 400
+
+        result = identify_template(
+            captured_data=captured_image,
+            candidates=candidates,
+            biometric_type=biometric_type,
+            threshold=threshold,
+        )
+
+        return jsonify(result), 200
+
+    except Exception as e:
+        app.logger.error(f"Error in identification: {e}")
+        return jsonify({
+            "message": "An error occurred in the AI identification service",
             "error": str(e)
         }), 500
 
