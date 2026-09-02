@@ -237,7 +237,7 @@ export function VerifyTravelerPage() {
       setIrisQuality(null);
       return;
     }
-    const allowed = ['png', 'jpg', 'jpeg', 'bmp'];
+    const allowed = ['png', 'jpg', 'jpeg', 'bmp', 'tif', 'tiff'];
     const extension = file.name.split('.').pop()?.toLowerCase() || '';
     if (!allowed.includes(extension)) {
       setVerifyError(`Invalid iris file format. Accepted formats: ${allowed.map(ext => ext.toUpperCase()).join(', ')}`);
@@ -250,6 +250,7 @@ export function VerifyTravelerPage() {
     setIrisSource(file);
     checkIrisQuality(file);
   };
+
 
   const clearFingerprint = () => {
     setFingerprintSource(null);
