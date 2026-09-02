@@ -29,7 +29,7 @@ export async function identifyTravelerByFingerprint(fingerprintSource: Buffer | 
   });
 
   if (!biometrics || biometrics.length === 0) {
-    return null;
+    return { traveler: null, score: 0, reason: 'No enrolled biometrics found in database.' };
   }
 
   const settings = await getSystemSettings().catch(() => null);
@@ -49,8 +49,11 @@ export async function identifyTravelerByFingerprint(fingerprintSource: Buffer | 
     threshold,
   });
 
+  // AI returned a specific rejection reason (e.g. not a fingerprint image)
+  const aiReason: string = (matchResult as any).reason ?? '';
+
   if (!matchResult.matchFound || !matchResult.matchedTravelerId) {
-    return null;
+    return { traveler: null, score: matchResult.score ?? 0, reason: aiReason };
   }
 
   const traveler = await prisma.traveler.findUnique({
@@ -69,11 +72,13 @@ export async function identifyTravelerByFingerprint(fingerprintSource: Buffer | 
     },
   });
 
-  if (!traveler) return null;
+  if (!traveler) return { traveler: null, score: 0, reason: 'Matched traveler ID not found in database.' };
 
   return {
     traveler,
     score: matchResult.score,
+    reason: '',
   };
 }
+
 

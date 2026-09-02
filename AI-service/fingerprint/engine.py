@@ -137,23 +137,26 @@ def verify_fingerprint(
             }
         }
 
-    # 4. Handle Mixed Mode (Token Ref vs Image Captured or vice-versa)
+    # 4. Handle Mixed Mode (Token Ref vs Real Image)
+    # For 1:N identification: token refs cannot be matched against real images —
+    # return score=0 so identify_template never picks this candidate.
+    # For 1:1 verification: we can allow it only if explicitly in verify (not identify) context,
+    # but since we can't distinguish here, we always return NOT_MATCHED on mixed mode.
     if is_token_ref and img is not None:
         return {
             "modality": "fingerprint",
             "biometricType": "fingerprint",
-            "status": "VERIFIED",
-            "verified": True,
-            "match": True,
-            "qualityScore": 92.0,
-            "matchScore": 95.0,
-            "score": 95.0,
-            "confidence": "HIGH",
-            "reason": "Fingerprint image matched enrolled traveler profile",
+            "status": "NOT_MATCHED",
+            "verified": False,
+            "match": False,
+            "qualityScore": 0.0,
+            "matchScore": 0.0,
+            "score": 0.0,
+            "confidence": "LOW",
+            "reason": "Cannot match real fingerprint image against a simulation token reference",
             "processingDetails": {
-                "qualityAccepted": True,
-                "featureExtractionSuccessful": True,
-                "tokenMatching": True
+                "qualityAccepted": False,
+                "featureExtractionSuccessful": False,
             }
         }
 
@@ -161,17 +164,17 @@ def verify_fingerprint(
         return {
             "modality": "fingerprint",
             "biometricType": "fingerprint",
-            "status": "VERIFIED",
-            "verified": True,
-            "match": True,
-            "qualityScore": 92.0,
-            "matchScore": 95.0,
-            "score": 95.0,
-            "confidence": "HIGH",
-            "reason": "Fingerprint token matched enrolled biometric template",
+            "status": "NOT_MATCHED",
+            "verified": False,
+            "match": False,
+            "qualityScore": 0.0,
+            "matchScore": 0.0,
+            "score": 0.0,
+            "confidence": "LOW",
+            "reason": "Cannot match simulation token against a real biometric template",
             "processingDetails": {
-                "qualityAccepted": True,
-                "featureExtractionSuccessful": True
+                "qualityAccepted": False,
+                "featureExtractionSuccessful": False,
             }
         }
 

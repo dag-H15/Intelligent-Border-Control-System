@@ -31,16 +31,17 @@ export function OfficerDashboard({ onGoVerify, onGoHistory }: Props) {
   return (
     <div className="space-y-6">
       {/* Action banner */}
-      <div className="card bg-navy-800 text-white border-navy-700 p-6 flex items-center justify-between">
+      <div className="card text-white border-0 p-6 flex items-center justify-between" style={{ backgroundColor: '#006341' }}>
         <div>
           <h2 className="text-lg font-semibold">Border Officer Dashboard</h2>
-          <p className="text-navy-300 text-sm mt-1">Start a new traveler verification</p>
+          <p className="text-sm mt-1" style={{ color: '#d7ece1' }}>Start a new traveler verification</p>
         </div>
-        <button onClick={onGoVerify} className="btn bg-white text-navy-800 hover:bg-navy-50 px-5 py-2.5 text-sm font-semibold">
+        <button onClick={onGoVerify} className="btn-gold">
           <Fingerprint size={16} />
           Start Verification
         </button>
       </div>
+
 
       {/* Stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -106,10 +107,10 @@ export function OfficerDashboard({ onGoVerify, onGoHistory }: Props) {
 
 type Tone = 'navy' | 'green' | 'amber' | 'red';
 const toneMap: Record<Tone, { bg: string; text: string }> = {
-  navy: { bg: 'bg-navy-100', text: 'text-navy-700' },
-  green: { bg: 'bg-accent-green-soft', text: 'text-accent-green' },
-  amber: { bg: 'bg-accent-amber-soft', text: 'text-accent-amber' },
-  red: { bg: 'bg-accent-red-soft', text: 'text-accent-red' },
+  navy:  { bg: 'bg-navy-100',           text: 'text-navy-700' },
+  green: { bg: 'bg-accent-green-soft',  text: 'text-accent-green' },
+  amber: { bg: 'bg-[#fef3c7]',          text: 'text-[#e6a660]' },
+  red:   { bg: 'bg-accent-red-soft',    text: 'text-accent-red' },
 };
 
 function StatCard({ label, value, icon: Icon, tone }: { label: string; value: number; icon: typeof Fingerprint; tone: Tone }) {
@@ -130,7 +131,7 @@ function StatCard({ label, value, icon: Icon, tone }: { label: string; value: nu
 }
 
 function ScoreBar({ value }: { value: number }) {
-  const color = value >= 95 ? '#16a34a' : value >= 90 ? '#d97706' : '#dc2626';
+  const color = value >= 95 ? '#006341' : value >= 90 ? '#e6a660' : '#d21034';
   return (
     <div className="flex items-center gap-2">
       <div className="h-1.5 w-16 rounded-full bg-navy-100 overflow-hidden">
@@ -140,3 +141,4 @@ function ScoreBar({ value }: { value: number }) {
     </div>
   );
 }
+

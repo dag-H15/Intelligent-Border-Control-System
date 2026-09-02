@@ -104,9 +104,13 @@ export function VerifyTravelerPage() {
       setStage('found');
       checkFpQuality(source);
     } catch (err: any) {
-      const msg = err.response?.data?.message || err.message || 'No enrolled traveler matches the scanned fingerprint.';
+      const status = err.response?.status;
+      if (status === 404) {
+        setLookupError('Not Found — no enrolled traveler matches this fingerprint.');
+      } else {
+        setLookupError(err.response?.data?.message || err.message || 'Not Found — fingerprint could not be matched.');
+      }
       setTraveler(null);
-      setLookupError(msg);
     } finally {
       setIdentifyLoading(false);
     }
@@ -116,21 +120,36 @@ export function VerifyTravelerPage() {
     setIdentifyLoading(true);
     setLookupError('');
     try {
-      if (captureMode === 'SCANNER') {
-        const supRes = await supremaScanner.captureFingerprint();
-        if (supRes.success && (supRes.image || supRes.template)) {
-          await handleFingerprintIdentify(supRes.image || supRes.template!);
-          return;
-        }
+      // Try real Suprema hardware scanner first
+      const isAvailable = await supremaScanner.isAgentAvailable();
+      if (!isAvailable) {
+        setLookupError('No scanner detected — please connect a Suprema fingerprint scanner or use "Upload Print File".');
+        setIdentifyLoading(false);
+        return;
       }
-      const mockData = await scannerService.captureFingerprint();
-      await handleFingerprintIdentify(mockData);
+
+      const supRes = await supremaScanner.captureFingerprint();
+      if (!supRes.success) {
+        setLookupError(supRes.error || 'No image captured from scanner. Please try again.');
+        setIdentifyLoading(false);
+        return;
+      }
+
+      const imageData = supRes.image || supRes.template;
+      if (!imageData) {
+        setLookupError('No image captured from scanner. Please place finger firmly on the sensor and try again.');
+        setIdentifyLoading(false);
+        return;
+      }
+
+      await handleFingerprintIdentify(imageData);
     } catch (err: any) {
-      const msg = err.response?.data?.message || err.message || 'Failed to capture fingerprint from sensor.';
-      setLookupError(msg);
+      setLookupError(err.message || 'Failed to capture fingerprint from sensor.');
       setIdentifyLoading(false);
     }
   };
+
+
 
 
   const fileToBase64 = (file: File): Promise<string> =>
@@ -441,13 +460,14 @@ export function VerifyTravelerPage() {
             </div>
 
             <h3 className="text-base font-bold text-navy-900 mb-1">
-              {identifyLoading ? 'Identifying Traveler from Fingerprint...' : 'Touch Sensor to Identify Traveler'}
+              {identifyLoading ? 'Identifying Traveler...' : 'Fingerprint Identification'}
             </h3>
             <p className="text-xs text-navy-500 max-w-md text-center mb-5">
-              Place traveler's finger on the Suprema hardware sensor or upload a test fingerprint file to automatically authenticate and fetch record.
+              Place traveler's finger on the connected Suprema hardware sensor, or upload a fingerprint image file to identify and fetch their record.
             </p>
 
             <div className="flex flex-wrap justify-center gap-3">
+              {/* Scan — only works with real scanner */}
               <button
                 type="button"
                 onClick={handleTouchSensorScan}
@@ -455,12 +475,13 @@ export function VerifyTravelerPage() {
                 className="btn-primary px-5 py-2.5 text-sm flex items-center gap-2 shadow-sm disabled:opacity-60"
               >
                 {identifyLoading ? (
-                  <><Loader2 size={16} className="animate-spin" /> Scanning Sensor...</>
+                  <><Loader2 size={16} className="animate-spin" /> Scanning...</>
                 ) : (
-                  <><Fingerprint size={16} /> Scan Fingerprint Sensor</>
+                  <><Cpu size={16} /> Scan Sensor</>
                 )}
               </button>
 
+              {/* Upload — identify from file */}
               <button
                 type="button"
                 onClick={() => lookupFpInputRef.current?.click()}
@@ -472,11 +493,17 @@ export function VerifyTravelerPage() {
               <input
                 ref={lookupFpInputRef}
                 type="file"
-                accept=".png,.jpg,.jpeg,.bmp,.tif,.tiff"
+                accept=".png,.jpg,.jpeg,.bmp,.tif,.tiff,.wsq"
                 className="hidden"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
-                  if (file) handleFingerprintIdentify(file);
+                  if (!file) {
+                    setLookupError('No file selected. Please choose a fingerprint image.');
+                    return;
+                  }
+                  // reset so same file can be re-selected
+                  e.target.value = '';
+                  handleFingerprintIdentify(file);
                 }}
               />
             </div>
@@ -500,11 +527,21 @@ export function VerifyTravelerPage() {
         )}
 
         {lookupError && (
-          <div className="mt-4 flex items-center gap-2 text-sm text-accent-red bg-accent-red-soft rounded-lg px-4 py-3">
-            <AlertCircle size={16} className="shrink-0" /> {lookupError}
+          <div className="mt-4 flex items-start gap-3 text-sm bg-accent-red-soft border border-accent-red/20 rounded-xl px-4 py-3">
+            <XCircle size={18} className="shrink-0 text-accent-red mt-0.5" />
+            <div>
+              <p className="font-semibold text-accent-red">
+                {lookupError.toLowerCase().includes('no scanner') ? 'No Scanner Detected' :
+                 lookupError.toLowerCase().includes('no image') ? 'No Image Captured' :
+                 lookupError.toLowerCase().includes('not found') || lookupError.toLowerCase().includes('no enrolled') ? 'Not Found' :
+                 'Error'}
+              </p>
+              <p className="text-accent-red/80 mt-0.5">{lookupError}</p>
+            </div>
           </div>
         )}
       </div>
+
 
       {/* Section 2 — Traveler info */}
       {traveler && stage !== 'lookup' && (

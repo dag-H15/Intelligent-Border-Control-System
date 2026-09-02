@@ -132,6 +132,34 @@ def identify():
                 "message": "Both a captured image and candidate list are required for 1:N identification."
             }), 400
 
+        # ── Fingerprint validity gate ──────────────────────────────────────────
+        # Before searching the database, verify the uploaded image is actually a
+        # fingerprint. Reject random images, documents, photos, etc.
+        if biometric_type == "fingerprint":
+            from utils.image_processing import decode_base64_image
+            from fingerprint.quality import check_quality as fp_check_quality
+
+            img = decode_base64_image(captured_image)
+            if img is None:
+                return jsonify({
+                    "matchFound": False,
+                    "matchedTravelerId": None,
+                    "score": 0.0,
+                    "biometricType": biometric_type,
+                    "reason": "Uploaded file is not a valid image."
+                }), 200
+
+            quality = fp_check_quality(img)
+            if not quality.get("biometricValid", False):
+                return jsonify({
+                    "matchFound": False,
+                    "matchedTravelerId": None,
+                    "score": 0.0,
+                    "biometricType": biometric_type,
+                    "reason": "Uploaded image does not contain a valid fingerprint ridge structure. Please upload a real fingerprint scan."
+                }), 200
+        # ──────────────────────────────────────────────────────────────────────
+
         result = identify_template(
             captured_data=captured_image,
             candidates=candidates,
@@ -147,6 +175,7 @@ def identify():
             "message": "An error occurred in the AI identification service",
             "error": str(e)
         }), 500
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("AI_SERVICE_PORT", 5001))

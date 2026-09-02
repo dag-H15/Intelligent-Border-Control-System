@@ -1,10 +1,9 @@
 export const scannerService = {
-  captureFingerprint: async () => {
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    return `scanner-fingerprint-${Date.now()}`;
+  captureFingerprint: async (): Promise<never> => {
+    throw new Error('No scanner detected. Please connect a fingerprint scanner or upload a print file.');
   },
-  captureIris: async () => {
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    return `scanner-iris-${Date.now()}`;
+  captureIris: async (): Promise<never> => {
+    throw new Error('No scanner detected. Please connect an iris scanner.');
   },
 };
+

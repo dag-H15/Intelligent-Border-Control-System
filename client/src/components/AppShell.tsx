@@ -105,8 +105,8 @@ export function AppShell({ role, userName, active, onNavigate, onLogout, childre
   return (
     <div className="flex h-screen overflow-hidden bg-navy-50">
       {/* Sidebar */}
-      <aside className="w-64 shrink-0 bg-navy-900 flex flex-col">
-        <div className="px-5 py-5 border-b border-navy-800">
+      <aside className="w-64 shrink-0 flex flex-col" style={{ backgroundColor: '#00301e' }}>
+        <div className="px-5 py-5" style={{ borderBottom: '1px solid #0e5136' }}>
           <SystemMark />
         </div>
         <nav className="flex-1 px-3 py-4 space-y-1">
@@ -126,7 +126,7 @@ export function AppShell({ role, userName, active, onNavigate, onLogout, childre
           })}
         </nav>
         <div className="px-3 pb-3">
-          <div className="rounded-lg bg-navy-800/60 px-3 py-2.5">
+          <div className="rounded-lg px-3 py-2.5" style={{ backgroundColor: 'rgba(14,81,54,0.5)' }}>
             <div className="flex items-center gap-2 text-navy-300 text-[11px] font-medium uppercase tracking-wide">
               <Shield size={12} />
               Secure Session
@@ -134,13 +134,14 @@ export function AppShell({ role, userName, active, onNavigate, onLogout, childre
             <div className="mt-1 text-navy-200 text-[11px]">TLS 1.3 · Session Active</div>
           </div>
         </div>
-        <div className="border-t border-navy-800 p-3">
-          <button onClick={onLogout} className="sidebar-link w-full text-navy-300 hover:text-accent-red">
+        <div className="p-3" style={{ borderTop: '1px solid #0e5136' }}>
+          <button onClick={onLogout} className="sidebar-link w-full text-navy-300 hover:text-[#ffdad6]">
             <LogOut size={18} strokeWidth={2} />
             <span>Logout</span>
           </button>
         </div>
       </aside>
+
 
       {/* Main */}
       <div className="flex-1 flex flex-col overflow-hidden">

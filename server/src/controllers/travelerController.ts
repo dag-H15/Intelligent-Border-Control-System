@@ -71,6 +71,13 @@ export async function identifyTravelerByFingerprintController(req: Request, res:
     const result = await identifyTravelerByFingerprint(fingerprintSource);
 
     if (!result || !result.traveler) {
+      const reason = result?.reason ?? '';
+      // Determine the right error message based on AI reason
+      let message = 'Not Found — no enrolled traveler matches this fingerprint.';
+      if (reason.toLowerCase().includes('valid fingerprint') || reason.toLowerCase().includes('ridge structure') || reason.toLowerCase().includes('not a valid image')) {
+        message = 'Not a valid fingerprint image — please upload a real fingerprint scan.';
+      }
+
       await logAuditEvent({
         userId: req.user!.userId,
         action: "Fingerprint Identification Failed",
@@ -78,9 +85,9 @@ export async function identifyTravelerByFingerprintController(req: Request, res:
         severity: AuditLevel.WARNING,
         result: AuditResult.FAILED,
         resourceType: "Traveler",
-        description: "No matching traveler found for scanned fingerprint",
+        description: `Fingerprint identification failed: ${message}`,
       });
-      return res.status(404).json({ message: "No enrolled traveler matches the scanned fingerprint." });
+      return res.status(404).json({ message });
     }
 
     const { traveler, score } = result;
